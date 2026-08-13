@@ -59,7 +59,12 @@ Workspace
 
 ServerStorage
   Tests/                   spec ModuleScripts, run via execute_luau
+  WorkLog/                 ★ claim before you edit — see WORKFLOW.md §2
+    README                   the protocol + Active() / OwnerOf() helpers
+    <JobID>                  one ModuleScript per job. NEVER a shared file.
 ```
+
+`WorkLog` and `Tests` are dev-only and are stripped at release (P6).
 
 **Naming is load-bearing.** `multi_edit` and `search_game_tree` address scripts by exact
 path. Every packet references `ServerScriptService.Services.SellService`; create it at

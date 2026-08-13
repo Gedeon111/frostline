@@ -41,8 +41,38 @@ thing standing between you and lost work.
 | `docs/*` (rest) | Architect |
 | `tasks/BOARD.md` | Everyone — status column only, your row only |
 
-**Two humans, two agent fleets:** claim a job on the board *when you start it*, not when you
-finish. Your agents can't see each other; the board is the entire coordination mechanism.
+### The WorkLog — an actual lock, not a convention
+
+`ServerStorage.WorkLog` is live in the place. Before editing any script:
+
+```lua
+local WorkLog = require(game.ServerStorage.WorkLog.README)
+WorkLog.OwnerOf("ServerScriptService.Services.CurrencyService")
+--> "A3 (opus-5 / Gedeon)"  or  nil if free
+```
+
+**The protocol, four steps:**
+
+1. **Check.** `WorkLog.Active()` — if any live entry lists a script you intend to edit in its
+   `owns`, stop. Work elsewhere or hand off.
+2. **Claim.** Create `ServerStorage.WorkLog.<JobID>` — a ModuleScript returning
+   `{ job, agent, status, started, heartbeat, owns, notes, handoffs }`. **One file per job.**
+   A single shared file would itself become the thing you collide on.
+3. **Work.** Refresh `heartbeat` and `notes`. Need a script outside your `owns`? Add it to
+   `handoffs` — don't edit it.
+4. **Release.** Set `status = "done"`. Leave the entry; it's the record of what happened.
+
+`owns` is the contract. Not in your `owns` means read-only, no exceptions.
+
+**Claim when you START.** A claim posted at the end prevents nothing.
+
+**Humans claim too** — building geometry in Team Create is `owns = { "Workspace.World.shelf_ice" }`.
+
+A claim older than ~2h with no heartbeat is stale, but say so before taking it over. The
+other agent may just be slow, and a human may be mid-thought.
+
+**Two humans, two agent fleets:** your agents cannot see each other. The WorkLog and the
+board are the entire coordination mechanism — if nobody claims, nothing protects you.
 
 ## 3. Contract freeze
 

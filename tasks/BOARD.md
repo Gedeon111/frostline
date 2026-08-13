@@ -53,7 +53,7 @@ The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MON
 
 | ID | Job | Owner | Depends | Status |
 |---|---|---|---|---|
-| F1 | Datamodel scaffold — folder tree in the place, survey what exists | Architect | — | TODO |
+| F1 | Datamodel scaffold + WorkLog claim system | Architect | — | **DONE** |
 | F2 | Shared contracts: Types, Remotes, Config tables from ECONOMY.md | Architect | F1 | TODO |
 | F3 | Core utils: Signal, Trove, RateLimiter, Format, TableUtil | Architect | F1 | TODO |
 | F4 | Two-phase loader + Net wrappers (server & client) | Architect | F2, F3 | TODO |

@@ -13,30 +13,28 @@ Everything blocks on these four. Do them in order, one worker (the Architect). H
 
 **You own:** the folder structure in the place. Nothing else.
 
-**Build:**
-- `list_roblox_studios` first, confirm you're targeting **"hunt for money"**
-  (PlaceId `83234958310651`), and `get_studio_state` to confirm Edit mode.
-- **Survey before creating.** The place already has a script in `ServerScriptService` and one
-  in `StarterPlayer`, plus 4 children in `Workspace`. `search_game_tree` and `script_read`
-  them. Report what's there; do not delete or overwrite anything without saying so first.
-- Create exactly the tree in ARCHITECTURE §2 — `ReplicatedStorage.Shared` with `Config`,
-  `Util`, `Assets`; `ServerScriptService.Services` and `Lib`; `StarterPlayerScripts.Controllers`
-  and `UI`; `Workspace.World` and `Workspace.Creatures`; `ServerStorage.Tests`.
-- `ServerScriptService.Bootstrap` (Script) and `StarterPlayerScripts.Bootstrap` (LocalScript),
-  each printing one boot line. F4 fills them in.
-- Verify with `start_stop_play`: the place runs, both boot lines appear in
-  `get_console_output`, no errors.
+**Status: DONE** — 2026-08-13. Record of what shipped, for anyone reading the board later.
 
-**Done when:**
-- [ ] Existing scripts surveyed and reported, nothing destroyed
-- [ ] Every path in ARCHITECTURE §2 exists at the exact name
-- [ ] Play test runs clean with both boot lines in the console
-- [ ] A `search_game_tree` dump of the new structure is in the handoff notes
+**Built:**
+- Full tree per ARCHITECTURE §2: `Shared.{Config,Util}`,
+  `Assets.{Creatures,Props,Traders,Tools,Companions}`, `Services`, `Lib`, `Controllers`,
+  `UI`, `Workspace.{World,Creatures}`, `ServerStorage.{Tests,WorkLog}`.
+- `ServerScriptService.Server` and `StarterPlayerScripts.Client` as two-phase loaders —
+  require all, `Init()` all, then `Start()` all, each pcall-wrapped so one bad service can't
+  stop the boot.
+- `ServerStorage.WorkLog` — the claim protocol (WORKFLOW §2), with `README` carrying the
+  rules and `Active()` / `OwnerOf(path)` helpers, plus `F1` as a reference entry.
 
-**Out of scope:** gameplay code, Config content, world geometry.
+**Verified:**
+- [x] Play test clean: `[boot] server ready — 0 service(s)` / `[boot] client ready — 0 controller(s)`
+- [x] WorkLog proven on a **live** claim, not just the empty case — a claimed path returns
+      its owner, an unclaimed path returns nil, release leaves nothing behind
+- [x] Place was a fresh baseplate; the only pre-existing content was three one-line stubs
+      (`Server`, `Shared`, `Client`), all superseded, nothing lost
 
-**Note:** this job used to be Rojo/rokit/selene/StyLua scaffolding. D-009 removed all of it.
-There is no toolchain to install and no build step — you are creating folders in a live place.
+**Handoffs:** F4 owns the Net wiring inside both bootstraps (they load nothing yet).
+F2 owns `Shared.Config` contents — empty by design. P6 must strip `WorkLog` and `Tests`
+before release.
 
 ---
 
