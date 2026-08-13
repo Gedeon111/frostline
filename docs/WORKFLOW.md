@@ -187,6 +187,35 @@ Three layers, and every job must say which ones it used:
 **Rule:** if a piece of logic can't be tested at layer 1, it's in the wrong module. Pull the
 math into a pure ModuleScript and test that; leave only engine wiring for layer 2.
 
+### `execute_luau` is an ISOLATED context — stateful services are invisible
+
+The biggest constraint on testing this project, found during A1.
+
+The Studio MCP's `execute_luau` runs in its **own Lua context**, with its own module
+cache and its own `_G`. Both were verified: a marker set in the game's context was
+absent, and `require(Services.DataService)` from `execute_luau` returned a *fresh copy*
+with an empty `profiles` table while the real service had the player loaded.
+
+**Only the datamodel crosses that boundary.**
+
+| What you're testing | Works from `execute_luau`? |
+|---|---|
+| Pure modules — `Format`, `TableUtil`, `Upgrades`, config tables | **yes** (F2, F3 used this) |
+| Datamodel state — instances, properties, `leaderstats` | **yes** |
+| Service in-memory state — loaded profiles, caches, registries | **no** |
+
+`Net` *appeared* to work from `execute_luau` only because it re-derives its remote
+table from the datamodel on load. That was luck, not design.
+
+**How to test a stateful service:** put the test somewhere the game itself loads, so it
+runs in the game's context, and report results through `print` — then read them with
+`get_console_output`. A temporary ModuleScript in `Services/` works and uses the
+existing loader. `_G` and BindableFunctions do **not** bridge the gap.
+
+This means P1 and P4 cannot be "call `Tests.RunAll` via `execute_luau`" for anything
+stateful. Those packets need respeccing: the runner has to be loaded by the bootstrap
+under `GameConfig.Debug`, not injected from outside.
+
 ### The require cache will lie to you
 
 `require()` results are **cached across `execute_luau` calls**. Edit a module, re-run your
