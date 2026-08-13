@@ -28,6 +28,7 @@ local Zones = require(Shared.Config.Zones)
 local Signal = require(Shared.Util.Signal)
 local Log = require(Shared.Util.Log)
 
+local Net = require(ServerScriptService.Services.Net)
 local InventoryService = require(ServerScriptService.Services.InventoryService)
 
 local CreatureService = {}
@@ -187,6 +188,10 @@ local function spawnOne(tierId: string, zoneId: string, position: Vector3): Mode
 	}
 
 	CreatureService.Spawned:Fire(model, tierId, variant)
+	-- Tell the clients. Without this the CreatureSpawned remote never fires and
+	-- HarvestController (B2) has nothing to attach a prompt to, so the game is
+	-- unplayable even though everything server-side works.
+	Net.FireAll("CreatureSpawned", model, tierId, variant)
 	return model
 end
 
@@ -236,6 +241,7 @@ function CreatureService.Damage(model: Model, amount: number, killer: Player?): 
 	end
 
 	CreatureService.Died:Fire(killer, model, info.tierId, info.variant)
+	Net.FireAll("CreatureDied", model, info.tierId, info.variant)
 
 	local respawnIn = tier and tier.respawnSeconds or 10
 	local zoneId, tierId, home = info.zoneId, info.tierId, info.home
@@ -354,6 +360,37 @@ function CreatureService.Start()
 				Log.info("Creature", "%s: %d x %s", zoneId, placed, zone.creatureTier)
 			end
 		end
+	end
+
+	--[[
+		Creatures spawn at server start, long before most players join, so a
+		joining client has missed every CreatureSpawned. Replay the current set
+		to them or they see no prompts at all on anything that existed before
+		they arrived — which, for the first player of a session, is everything.
+	]]
+	local function replayTo(player: Player)
+		for model, info in pairs(living) do
+			if info.alive and model.Parent then
+				Net.Fire(player, "CreatureSpawned", model, info.tierId, info.variant)
+			end
+		end
+	end
+
+	Players.PlayerAdded:Connect(function(player)
+		-- Wait for the client's controllers to exist, or the event lands before
+		-- anything is listening.
+		task.delay(2, function()
+			if player.Parent == Players then
+				replayTo(player)
+			end
+		end)
+	end)
+	for _, player in ipairs(Players:GetPlayers()) do
+		task.delay(2, function()
+			if player.Parent == Players then
+				replayTo(player)
+			end
+		end)
 	end
 
 	task.spawn(wanderLoop)
