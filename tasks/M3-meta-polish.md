@@ -59,20 +59,28 @@ grants once; buying 2x Cash mid-session applies to the very next sell with no re
 
 **Owner:** Server · **Depends on:** A1
 
+**Read first:** `docs/ANALYTICS.md` — the complete event schema. Build exactly that.
+
 **You own:** `src/server/Services/AnalyticsService.luau`
 
-**Build:** typed event emit with a fixed schema. Minimum event set: `session_start`,
-`first_sell`, `zone_unlocked`, `upgrade_purchased`, `rebirth`, `product_purchased`,
-`session_end` (with duration), plus **every** `CurrencyService.Award` source and `Spend` sink.
-Batch and flush; never one HTTP call per event. Ship behind a config flag so it can be dark
-until an endpoint exists.
+**Build:** the 7-step onboarding funnel, the 6-step session funnel, economy events from the
+two `CurrencyService` call sites, and the custom events in ANALYTICS §6 — all on Roblox's
+built-in `AnalyticsService` (verify its method signatures against current docs first; a wrong
+argument order yields empty dashboards, not an error).
 
-The economy questions this must answer on day one of soft launch: where do players quit, how
-long to first sell, which zone is the wall, and what fraction of cash comes from each source.
+Two things that will bite if you skip them:
+- **Milestone idempotency** must be guarded on a persisted `funnelSteps` profile flag, not a
+  session variable. A session guard double-counts every rejoin and quietly ruins the funnel.
+- **Stream events must batch.** One call per cash award will cost you frames.
 
-**Done when:** every currency movement in the codebase carries a source/sink string (grep and
-prove it); the funnel `join → first kill → first sell → first upgrade → zone 2` is
-reconstructable from events alone; disabling the flag removes all overhead.
+**Done when:** every currency movement carries a source/sink string (grep and prove it); all
+7 onboarding steps fire exactly once per player across rejoins and server hops (test this
+explicitly); the funnel renders in the Creator Dashboard with real test data; analytics
+failures are pcall-isolated and never block a sell; disabling the config flag removes all
+overhead.
+
+**Move this earlier if M3 slips.** Retrofitting analytics means losing the first week of live
+data, which is the most informative week the game will ever have.
 
 ---
 

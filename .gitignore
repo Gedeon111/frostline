@@ -3,6 +3,9 @@
 .env.local
 tools/cloud/.uploaded.json
 
+# Personal harness overrides (.claude/settings.json IS committed — it holds shared hooks)
+.claude/settings.local.json
+
 # Roblox build output
 *.rbxlx
 *.rbxl
