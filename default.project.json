@@ -6,9 +6,6 @@
       "Shared": {
         "$path": "src/shared"
       },
-      "Assets": {
-        "$path": "assets"
-      },
       "Remotes": {
         "$className": "Folder"
       }

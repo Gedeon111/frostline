@@ -67,7 +67,7 @@ Target: a player can join, kill cubs, fill a pack, sell, buy 3 upgrades, rejoin 
 | A1 | `DataService` — ProfileStore, schema, migration, leaderstats | Server | F4 | **DONE** |
 | A2 | `StateService` — profile→client diff replication at 10Hz | Server | A1 | TODO |
 | A3 | `CurrencyService` + `InventoryService` — cash, pack weight, capacity | Server | A1 | **DONE** |
-| A4 | `CreatureService` — spawn from zone config, HP table, respawn, drops | Server | F4 | TODO |
+| A4 | `CreatureService` — spawn from zone config, HP table, respawn, drops | Server | F4 | **DONE** |
 | A5 | `CombatService` — swing validation, damage, cooldown, range, kill | Server | A3, A4 | TODO |
 | A6 | `SellService` — sell zone, payout, pack clear, multiplier hook | Server | A3 | TODO |
 | A7 | `UpgradeService` — cost curve, purchase validation, effect application | Server | A3 | TODO |
