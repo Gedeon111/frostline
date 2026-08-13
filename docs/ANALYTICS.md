@@ -103,10 +103,14 @@ from any other data.
 Via `LogCustomEvent`, with these custom fields on **every** event:
 
 ```lua
-{ zone = "glacier_ridge", rebirths = 2, multiplier = 8.4, isPayer = true, playtimeMinutes = 47 }
+{ zone = "glacier_ridge", payer = "free", progress = "rebirth_2" }
 ```
 
-Those five fields are what let you segment. "Conversion is 3%" is nearly useless; "conversion
+**Three, not five (D-013).** `Enum.AnalyticsCustomFieldKeys` has exactly three members —
+verified against the live enum. `zone` and `payer` are the two §7 actually needs; the
+third is a coarse progress bucket. `multiplier` is recoverable from economy events.
+
+Those fields are what let you segment. "Conversion is 3%" is nearly useless; "conversion
 is 0.4% for players who never reached Zone 2 and 9% for those who did" tells you exactly where
 to spend effort.
 

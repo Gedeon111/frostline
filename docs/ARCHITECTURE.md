@@ -25,16 +25,28 @@ project.
 Geometry work is coordinated through `ServerStorage.WorkLog` instead (WORKFLOW §2).
 
 ```bash
-rokit install                       # rojo, selene, stylua, run-in-roblox
+rokit install                       # rojo, wally, selene, stylua, run-in-roblox
+wally install                       # React, ReactRoblox, UILabs
 rojo serve                          # live sync into an open place
 rojo build -o Hunt.rbxlx            # produce a place file
-./scripts/check.sh                  # stylua + selene + build
+./scripts/check.sh                  # wally + stylua + selene + build
 ```
 
-**No Knit, no Fusion, no Roact, no Wally.** Frameworks create version drift between workers
-and hide control flow. We use a small loader (§2) and plain Instance construction for UI.
-Third-party code is pasted as a single ModuleScript with its license header intact —
+**No Knit, no Fusion.** Frameworks create version drift between workers and hide control
+flow. We use a small loader (§2) for everything that starts up.
+
+**UI is the one exception (D-011): React Lua, installed by Wally.** It is confined to
+`src/client/UI/**` — services and controllers stay plain. Versions are pinned in `wally.toml`
+and `wally.lock` is committed, which is what keeps the drift argument answered. Server-side
+third-party code is still pasted as a single ModuleScript with its license header intact —
 currently ProfileStore only.
+
+```bash
+wally install                       # Packages/ and DevPackages/, both gitignored
+```
+
+`Packages/` is restored from the lockfile, never committed. Run `wally install` after a fresh
+clone and after anyone edits `wally.toml`, or `rojo build` fails on the missing path.
 
 ## 2. Datamodel layout
 
@@ -51,6 +63,8 @@ src/client/Controllers/**  →  StarterPlayerScripts.Controllers
 src/client/UI/**           →  StarterPlayerScripts.UI
 assets/**                  →  ReplicatedStorage.Assets
 tests/**                   →  ServerStorage.Tests
+Packages/**                →  ReplicatedStorage.Packages       (wally, gitignored)
+DevPackages/**             →  ReplicatedStorage.DevPackages    (wally, gitignored)
                            →  ReplicatedStorage.Remotes  (empty Folder, Net fills at runtime)
 ```
 
@@ -178,6 +192,7 @@ and job `A10` will find it.
   offers = { starterShownAt = 0, starterPurchased = false, dealsSeed = 0 },
   social = { groupClaimed = false },
 
+  funnelSteps = {},          -- onboarding milestones already fired (D-012)
   stats = { kills = 0, sells = 0, playtimeSeconds = 0, goldenKills = 0 },
   settings = { music = true, sfx = true, reducedEffects = false },
   claims = { lastDailyAt = 0, dailyStreak = 0, redeemedCodes = {} },

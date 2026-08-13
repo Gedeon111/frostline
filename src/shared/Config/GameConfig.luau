@@ -60,6 +60,11 @@ return {
 	TargetSecondsToFirstSell = 90,
 	SellArrowShowsAtPackFraction = 0.5,
 
+	-- ── Analytics ──
+	-- Kill switch. Analytics must never be the reason the game breaks, so it
+	-- can be turned off without touching AnalyticsService.
+	AnalyticsEnabled = true,
+
 	-- ── Dev ──
 	Debug = true,               -- gates Log output. MUST be false at release (P6).
 }

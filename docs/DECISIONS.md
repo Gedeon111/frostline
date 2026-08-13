@@ -239,4 +239,92 @@ packets, P1/P4/P7, board.
 
 ---
 
+### D-011 · 2026-08-13 · ACCEPTED · React Lua + Wally for UI. Partially supersedes D-002.
+
+**Decision (Dionis's call).** UI is built in React Lua (`jsdotlua/react` 17.2.0 and
+`jsdotlua/react-roblox` 17.2.0), installed by Wally, previewed in Studio through the UI Labs
+storybook plugin (`pepeeltoro41/ui-labs` 2.3.2, a dev-dependency). The studded kit imported
+from Figma via FigBloxUI is ported to components under `src/client/UI/`.
+
+This reverses one clause of D-002 — "no Roact, no Wally" — which D-010 left standing when it
+restored the rest of the file-based workflow. Nothing else in D-002 changes: the two-phase
+loader still owns startup, and UI mounts from a normal controller (`UIController`) under the
+same `Init`/`Start` contract as every other client module.
+
+**Why:** the Figma import arrives as a dead instance tree. FigBlox emitted 144 nested Frames
+in `StarterGui` with every button as a non-interactive `Frame`, sizes carrying rounding noise
+(`UDim2.new(-0.0015, 307, 0.0006, 86)`), a `UIScale` of 0.3719 baked to whatever fit the
+Studio viewport that day, and near-identical geometry repeated per instance. It is not
+maintainable by hand and it is not diffable, so it fails the same test D-002 applied to
+Studio-authored code. Porting it to components makes it reviewable, gives the buttons real
+`Activated` events, and replaces the frozen `UIScale` with one computed from the viewport.
+
+**Why a framework rather than plain Instance construction:** the argument in D-002 was version
+drift between workers. Wally answers that directly — `wally.toml` pins exact versions and
+`wally.lock` is committed, so every worker resolves identical trees. The remaining cost is
+that reviewers must know React; the gain is that UI Labs hot-reloads a component in about a
+second, against a build-and-playtest loop measured in tens of seconds. UI is the one area of
+this project where iteration count dominates, which is why the trade lands differently here
+than it did for services.
+
+**What this does NOT change:** services, controllers, the loader, the remote contract, the
+data schema. React is confined to `src/client/UI/**`. No other track picks up a dependency.
+
+**Blast radius:** ARCHITECTURE §1–2, `default.project.json`, `scripts/check.sh` (now needs
+`wally install` before `rojo build`), README, and job `B1` — whose packet still specifies
+"No reactivity framework; binding is `State.Observe`". B1 now binds React props from
+`State.Observe` rather than writing to instances directly; the state layer itself is
+unchanged.
+
+**Cost, stated plainly:** this is the fourth foundation change before gameplay code exists
+(D-002 → D-009 → D-010 → D-011), and D-010 closed by saying the next reversal should carry a
+stronger argument than the last two. This one is narrower than those — it touches one folder
+rather than the whole authoring model, and it is additive, since nothing was built on the
+banned clause. That is the argument; it is not a blank cheque for a fifth.
+
+**Verified:** all 23 UI modules require cleanly in the live datamodel; `rojo build` produces a
+place; a solo playtest mounts the HUD, opens the shop from three entry points and closes it,
+with no errors on the client.
+
+---
+
+### D-012 · 2026-08-14 · ACCEPTED · Add `funnelSteps` to the profile schema
+
+**Decision:** add `funnelSteps = {}` to the profile template (ARCHITECTURE §4).
+
+**Why:** ANALYTICS §3's onboarding funnel requires each milestone to fire **exactly once
+per player, ever**. A session-scoped guard re-fires every one of them on every rejoin, so
+`first_sell` would be counted thousands of times and the funnel silently becomes a
+measure of how often people rejoin. The guard has to survive a session, which means it
+has to live on the profile.
+
+**Blast radius:** additive only. `ProfileStore:Reconcile()` backfills it for existing
+players on their next load, so there is no migration and no version bump. Nothing reads
+it except `AnalyticsService`.
+
+**Not replicated.** It stays server-side — the client has no use for it and every
+replicated field is one more thing an exploiter can reason about.
+
+---
+
+### D-013 · 2026-08-14 · ACCEPTED · Analytics carries 3 custom fields, not 5
+
+**Decision:** custom fields on analytics events are `zone`, `payer`, and `progress` —
+three, not the five ANALYTICS §6 originally specified.
+
+**Why:** Roblox's `Enum.AnalyticsCustomFieldKeys` has exactly three members
+(`CustomField01/02/03`). The doc asked for five (`zone`, `rebirths`, `multiplier`,
+`isPayer`, `playtimeMinutes`), which the platform cannot carry. Verified against the live
+enum rather than assumed.
+
+**Which three, and why those:** ANALYTICS §7's stated purpose for segmentation is
+questions like *"conversion is 0.4% for players who never reached Zone 2 and 9% for those
+who did"* — that needs **zone** and **payer**. The third slot goes to a coarse
+**progress** bucket (rebirth count), which is the next most useful cut and subsumes what
+`playtimeMinutes` would have told us. `multiplier` is recoverable from economy events.
+
+**Blast radius:** ANALYTICS §6 corrected; `AnalyticsService` only.
+
+---
+
 <!-- Add new decisions below this line -->

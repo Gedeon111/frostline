@@ -67,6 +67,11 @@ local TEMPLATE = {
 	offers = { starterShownAt = 0, starterPurchased = false, dealsSeed = 0 },
 	social = { groupClaimed = false },
 
+	-- Onboarding milestones already fired, keyed by step name (D-012). MUST be
+	-- persisted: a session-scoped guard re-fires every milestone on rejoin and
+	-- the funnel becomes a measure of how often people rejoin.
+	funnelSteps = {},
+
 	stats = { kills = 0, sells = 0, playtimeSeconds = 0, goldenKills = 0 },
 	settings = { music = true, sfx = true, reducedEffects = false },
 	claims = { lastDailyAt = 0, dailyStreak = 0, redeemedCodes = {} },
