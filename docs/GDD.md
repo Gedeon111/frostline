@@ -104,7 +104,7 @@ Full design in `docs/MONETIZATION.md` §2–3.
 
 ## 8. Monetization
 
-19 SKUs across gamepasses, dev products, and a season pass. Full table in
+22 SKUs across gamepasses, dev products, and a season pass. Full table in
 `docs/MONETIZATION.md` §4. The design rule underneath all of them:
 
 **Monetize depth, not access.** No paywalled zones, no pay-to-win against other players, no

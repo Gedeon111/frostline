@@ -105,7 +105,11 @@ are never re-released — that promise has to be kept or the mechanic dies.
 | 17 | Instant Full Pack | 99 | |
 | 18 | Season Pass premium | 599 | unlocks the paid reward track |
 
-**19 SKUs.** The Starter Pack is the most important line in this table — a one-time, heavily
+**22 SKUs** — 11 gamepasses + 11 dev products. (The table collapses the four cash packs and
+two egg bundles into single rows, which is why an earlier draft of this doc miscounted them
+as 19. The F2 freeze test caught it.)
+
+The Starter Pack is the most important line in this table — a one-time, heavily
 over-valued, timer-limited offer shown at the end of the first session converts more first-time
 buyers than everything else combined. Price it so it's obviously worth it.
 

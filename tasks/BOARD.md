@@ -30,7 +30,7 @@ The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MON
 | G9 | `QuestService` — 3 daily, 3 weekly | Server+Client | 1 | A14, G8 | TODO |
 | G10 | Events + potion boosts (expiry timestamps, not durations) | Server+Client | 1 | A13 | TODO |
 | G11 | AFK Camp — idle earning at ~15% | Server+Client | 1 | A6, A8 | TODO |
-| G12 | Store UI — 19 SKUs, offers, **live multiplier readout** | Client | 1 | B5, G7, G8, G10 | TODO |
+| G12 | Store UI — 22 SKUs, offers, **live multiplier readout** | Client | 1 | B5, G7, G8, G10 | TODO |
 | G13 | Social hooks — group reward, friend bonus | Server+Client | 1 | A1, G3 | TODO |
 
 ---
@@ -54,7 +54,7 @@ The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MON
 | ID | Job | Owner | Depends | Status |
 |---|---|---|---|---|
 | F1 | Datamodel scaffold + WorkLog claim system | Architect | — | **DONE** |
-| F2 | Shared contracts: Types, Remotes, Config tables from ECONOMY.md | Architect | F1 | TODO |
+| F2 | Shared contracts: Types, Remotes, Config — **CONTRACT FROZEN** | Architect | F1 | **DONE** |
 | F3 | Core utils: Signal, Trove, RateLimiter, Format, TableUtil | Architect | F1 | TODO |
 | F4 | Two-phase loader + Net wrappers (server & client) | Architect | F2, F3 | TODO |
 

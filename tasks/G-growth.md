@@ -223,7 +223,7 @@ rather than loses; it can't out-earn active play in any zone.
 
 **You own:** `src/client/UI/Store.luau` and extensions to `Shop.luau`
 
-**Build:** a Robux store screen covering all 19 SKUs, grouped (Boosts / Passes / Cash /
+**Build:** a Robux store screen covering all 22 SKUs, grouped (Boosts / Passes / Cash /
 Companions); the Starter Pack as a full-screen timed takeover — the one place in this game
 permitted to be loud; daily deals with live countdowns; a persistent multiplier readout on the
 HUD showing the current `×N` and what's contributing to it.
@@ -236,7 +236,7 @@ Everything except the Starter Pack takeover obeys `docs/ART_BIBLE.md` §6.
 
 **Done when:** every SKU is purchasable and correctly fulfilled end-to-end against real
 product IDs; countdowns are driven by server time; the multiplier breakdown matches
-`MonetizationService` exactly; the store opens in under 200ms with all 19 SKUs.
+`MonetizationService` exactly; the store opens in under 200ms with all 22 SKUs.
 
 ---
 

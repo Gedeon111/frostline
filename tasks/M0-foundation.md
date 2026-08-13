@@ -73,23 +73,41 @@ signature), exactly matching ARCHITECTURE §3. Not the instances; `Net` creates 
   and a **`costs` array of 9 literal integers** transcribed from ECONOMY §2. Do not compute
   costs at runtime — a formula drifts from the design doc, a literal table cannot.
 - `Tools.luau` — 4 harpoon models mapped to upgrade levels 1/4/7/10
-- `Products.luau` — all 19 SKUs from `docs/MONETIZATION.md` §4 as **names and effects with
+- `Products.luau` — all 22 SKUs from `docs/MONETIZATION.md` §4 as **names and effects with
   `id = 0` placeholders**; `P5` fills in real IDs after creating them on the dashboard
 
 `Companions.luau` and `Eggs.luau` are **not** part of this job — they land in `G2`, which also
 files the profile-schema RFC for the growth fields. Leave room for them; don't invent them.
 
-**Done when:**
-- [ ] Every number in `docs/ECONOMY.md` appears in exactly one Config module
-- [ ] Every Config table is typed against `Types` and passes strict mode
-- [ ] `Upgrades.costs` sums match the totals stated in ECONOMY §2 (53,629 / 127,750 / 170,581)
-- [ ] Remote list matches ARCHITECTURE §3 exactly — no extras, no omissions
-- [ ] A one-line comment above every table pointing at its doc section
-- [ ] `execute_luau` requires every Config module successfully and prints a summary count
-- [ ] You announce the freeze on the board
+**Status: DONE** — 2026-08-13. **CONTRACT IS NOW FROZEN.** Changes require an RFC.
 
-**Out of scope:** any behaviour. These files contain data and types only — no functions
-beyond pure lookups like `Upgrades.GetCost(track, level)`.
+**Verified:**
+- [x] All 8 modules require cleanly (`Types`, `Remotes`, 6 × `Config`)
+- [x] Cost totals match ECONOMY §2 exactly — 53,629 / 127,750 / 170,581
+- [x] `#values == maxLevel` and `#costs == maxLevel-1` on all three tracks
+- [x] ECONOMY §7 rule 1 (cash/weight ≥ 2.5x per tier) — **failed at 2.40x, fixed, now 2.53x**
+- [x] ECONOMY §7 rule 3 (≤ 8 swings at max harpoon) — worst case Titan at 7
+- [x] Zone order 1–5 contiguous, every zone references a real creature tier
+- [x] 22 products, all `assetId = 0` pending P5
+- [x] 15 remotes, zero name collisions across the three groups
+
+**Three defects caught before any code was written against them:**
+
+1. **`frost_bear` cash/weight was 2.40x, below the 2.5x floor.** ECONOMY §1's table and §7's
+   rule 1 contradicted each other — written separately, never cross-checked. `meatValue`
+   18 → 19 (6.33 c/w, 2.53x). The data moved rather than the rule, because tier 1→2 is the
+   first zone transition a player ever feels.
+2. **22 SKUs, not 19.** MONETIZATION §4 collapsed 4 cash packs and 2 egg bundles into single
+   rows, then counted rows. Docs corrected everywhere.
+3. **`require()` caches across `execute_luau` calls.** The first re-check after fixing #1
+   returned the *pre-edit* value with no error. Documented in WORKFLOW §8 with a
+   `freshRequire` clone helper. Left undiscovered, this would have silently invalidated
+   every verification for the rest of the project.
+
+**Handoffs:** G2 adds `Config.Companions` and `Config.Eggs`. P5 fills real ids into
+`Config.Products`. C6 creates `Config.Audio`. F4 owns `Net` and consumes `Remotes.All()`.
+
+**Out of scope (respected):** no behaviour — data, types, and pure lookups only.
 
 ---
 

@@ -99,7 +99,7 @@ direction absorbs it better than most styles would.
 ### D-007 · 2026-08-13 · ACCEPTED · Companions are in. Supersedes GDD §9's "no pets."
 
 **Decision:** Add a ~40-companion collection layer with eggs, rarities, fusion, and an index,
-plus 19 monetization SKUs, a season pass, quests, events, timed offers, and an AFK camp. New
+plus 22 monetization SKUs, a season pass, quests, events, timed offers, and an AFK camp. New
 job track `G`, ~13 jobs. Full design in `docs/MONETIZATION.md`.
 
 **Why the reversal:** the original plan excluded pets on design-purity grounds — the loop is

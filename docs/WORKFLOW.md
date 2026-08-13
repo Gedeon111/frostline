@@ -166,3 +166,29 @@ Three layers, and every job must say which ones it used:
 
 **Rule:** if a piece of logic can't be tested at layer 1, it's in the wrong module. Pull the
 math into a pure ModuleScript and test that; leave only engine wiring for layer 2.
+
+### The require cache will lie to you
+
+`require()` results are **cached across `execute_luau` calls**. Edit a module, re-run your
+check, and you get the *old* value back — with no error and no warning. You conclude the fix
+worked. It didn't.
+
+This bit F2: a config value was changed, verified as changed in the source, and the test still
+reported the pre-change number.
+
+Use a fresh clone in any check that runs after an edit:
+
+```lua
+local function freshRequire(module: ModuleScript)
+    local clone = module:Clone()             -- distinct instance = distinct cache entry
+    clone.Name = module.Name .. "__fresh"
+    clone.Parent = module.Parent             -- sibling, so relative requires still resolve
+    local ok, result = pcall(require, clone)
+    clone:Destroy()
+    assert(ok, tostring(result))
+    return result
+end
+```
+
+Parenting the clone as a **sibling** matters — modules resolve dependencies through
+`script.Parent`, so a clone parked elsewhere fails to find `Types`.

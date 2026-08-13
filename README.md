@@ -14,7 +14,7 @@ ad games, not the pastel clutter of Pet Simulator.
 | `docs/GDD.md` | What the game is. Loop, content, progression, scope. |
 | `docs/ARCHITECTURE.md` | Folder layout, service pattern, remote contract, data schema. **Frozen contract.** |
 | `docs/ECONOMY.md` | Every number in the game. Config tables derive from this. |
-| `docs/MONETIZATION.md` | **The business.** Multiplier stack, companions, 19 SKUs, retention ladder. |
+| `docs/MONETIZATION.md` | **The business.** Multiplier stack, companions, 22 SKUs, retention ladder. |
 | `docs/ANALYTICS.md` | Funnel and event schema — where players quit and where cash goes. |
 | `docs/ART_BIBLE.md` | Palette, silhouette rules, UI kit, model specs. |
 | `docs/AUTOMATION.md` | The four channels agents ship through — toolchain, Open Cloud, browser, generative. |

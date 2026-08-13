@@ -9,14 +9,19 @@
 | Tier | Id | Zone | HP | Drops | Weight/meat | Value/meat | Cash/kill | Weight/kill | Cash per weight |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | `snow_cub` | Shelf Ice | 30 | 2 | 2 | 5 | 10 | 4 | 2.5 |
-| 2 | `frost_bear` | Glacier Ridge | 120 | 3 | 3 | 18 | 54 | 9 | 6.0 |
+| 2 | `frost_bear` | Glacier Ridge | 120 | 3 | 3 | 19 | 57 | 9 | 6.33 |
 | 3 | `ice_bear` | Crevasse Fields | 450 | 4 | 4 | 65 | 260 | 16 | 16.3 |
 | 4 | `aurora_bear` | Aurora Basin | 1,800 | 5 | 5 | 240 | 1,200 | 25 | 48.0 |
 | 5 | `titan_bear` | The Black Ice | 7,500 | 6 | 6 | 900 | 5,400 | 36 | 150.0 |
 
-HP scales ×4/tier, value ×3.6/tier, **cash-per-weight ×~3/tier**. That last column is the one
-that matters: it is the real progression curve. A trip in Zone 5 is worth 60x a trip in Zone 1
-at the same pack size.
+HP scales ×4/tier, value ×3.6/tier, **cash-per-weight ×2.5–3.1/tier**. That last column is the
+one that matters: it is the real progression curve. A trip in Zone 5 is worth 60x a trip in
+Zone 1 at the same pack size.
+
+> **Corrected 2026-08-13.** `frost_bear` was 18 (6.0 cash/weight), which made the tier 1→2
+> step 2.40x and violated §7 rule 1. Caught by the F2 freeze test before any code was written
+> against it. Raised to 19 → 6.33, a 2.53x step. Tier 1→2 is the first zone transition a
+> player ever feels, so the data moved rather than the rule.
 
 **Golden variant (M2):** 2% spawn chance, same HP, **10x value**, gold fur + PointLight.
 **Respawn:** 8s (T1–T2), 15s (T3–T4), 25s (T5). Population per zone: 25 creatures.
@@ -72,7 +77,7 @@ Swing cooldown 0.6s. Approach time ~3s/creature. Walk-back ~15–20s.
 | Zone | Typical pack lv | Kills/trip | Cash/trip | Trip time | Cash/min | Time to next unlock |
 |---|---|---|---|---|---|---|
 | 1 | 1–4 | 5 | 50 | ~40s | ~75 | ~11 min |
-| 2 | 4–6 | 6 | 324 | ~45s | ~430 | ~25 min |
+| 2 | 4–6 | 6 | 342 | ~45s | ~456 | ~24 min |
 | 3 | 6–8 | 5 | 1,300 | ~50s | ~1,560 | ~40 min |
 | 4 | 8–10 | 4 | 4,800 | ~60s | ~4,800 | ~85 min |
 | 5 | 10 | 3 | 16,200 | ~65s | ~15,000 | — |
