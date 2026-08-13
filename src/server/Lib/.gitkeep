@@ -1,0 +1,5 @@
+Vendored third-party ModuleScripts go here (ProfileStore, job A1), pasted as
+single files with their license headers intact — see ARCHITECTURE §1.
+
+This file exists because git does not track empty directories, and
+default.project.json maps this path. Without it a fresh clone fails to build.
