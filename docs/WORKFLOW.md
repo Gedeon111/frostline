@@ -74,6 +74,24 @@ other agent may just be slow, and a human may be mid-thought.
 **Two humans, two agent fleets:** your agents cannot see each other. The WorkLog and the
 board are the entire coordination mechanism — if nobody claims, nothing protects you.
 
+### The WorkLog does not cover everything (learned the hard way)
+
+It lives in Studio, so it only sees Studio work. It cannot see someone working in git, and it
+cannot see someone working from a plan version that has since changed.
+
+**This already cost us a full job.** PR #1 implemented F1 exactly to spec, from a commit made
+about an hour before D-009 replaced the entire file-based approach. Good work, obsolete the
+moment it was pushed, and nothing in the system flagged it.
+
+Two rules close the gap:
+
+1. **`git pull` and re-read your packet before you start.** Not when you finish. The plan is
+   still moving; a packet you read yesterday may not be the packet that exists today.
+2. **A decision that supersedes a frozen contract goes on the board *before* it goes in the
+   docs.** Whoever files the RFC checks the WorkLog and open branches first, and tells anyone
+   mid-flight. Rewriting the foundation under someone is a coordination failure by the person
+   rewriting it, not by the person who was working.
+
 ## 3. Contract freeze
 
 `src/shared/Config/**`, `src/shared/Types.luau`, and `src/shared/Remotes.luau` are frozen
