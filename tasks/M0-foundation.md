@@ -126,13 +126,40 @@ files the profile-schema RFC for the growth fields. Leave room for them; don't i
 - `TableUtil.luau` — `DeepCopy`, `Diff(old, new)`, `Reconcile(data, template)`
 - `Log.luau` — `Log.info/warn/error`, no-ops unless `GameConfig.Debug`
 
-**Done when:**
-- [ ] All six modules `--!strict`, zero external dependencies
-- [ ] `Format.Abbreviate` handles 0, negatives, and exactly 1000 correctly
-- [ ] `TableUtil.Reconcile` fills missing keys from a template without clobbering existing
-- [ ] Each module has a `tests/`-ready pure API (no Instance/service access except `Log`)
+**Status: DONE** — 2026-08-13. Six modules in `src/shared/Util/`.
 
-**Out of scope:** promises, maid variants, anything not listed. Six modules, no more.
+**Verified** (36 assertions run in-engine via `execute_luau`):
+- [x] All six `--!strict`; only internal deps (`Log` → `GameConfig`)
+- [x] `Format.Abbreviate` — 0, negatives, exactly 1000, and **every 1000-boundary
+      swept both sides** through `1e18`
+- [x] `TableUtil.Reconcile` fills gaps without clobbering, doesn't mutate the source,
+      keeps unknown player fields, handles `nil` data
+- [x] `TableUtil.Diff` reports changed/added, and removed keys via the `None` sentinel
+- [x] `RateLimiter` — 10 rapid calls against budget 3 allow exactly 3; keys independent
+- [x] `Signal` — order, disconnect, `Once` fires once, a throwing handler doesn't
+      block the others
+- [x] `Trove` — returns what you add, destroys instances, disposes **LIFO**
+- [x] `rojo build` succeeds
+
+**One real bug caught by the sweep:** `Abbreviate(999999)` returned `"1000K"`. The
+boundary guard tested the raw scaled value (999.999, correctly under 1000) but
+formatting to 2dp then rounded it *up* to `1000.00`. Fixed by testing the rounded
+value — the one that actually gets displayed.
+
+**Not verified — blocked:** `stylua --check` and `selene`. `rokit install` cannot reach
+GitHub from this machine (same TLS issue as the git push needing `schannel`), so neither
+binary is present. `rojo build` passes; formatting and lint are **unchecked**. Do not
+treat the `check.sh` gate in WORKFLOW §5 as met for this job.
+
+**Handoffs:**
+- Someone with working network should run `rokit install`, then `./scripts/check.sh`,
+  and fix any formatting this introduced.
+- F4 consumes all six. `Net` uses `RateLimiter.Check` + `RateLimiter.ForgetPrefix` on
+  `PlayerRemoving` so buckets don't leak over a long server's life.
+- A1 uses `TableUtil.Reconcile` against the profile template; A2 uses `Diff` — note
+  `TableUtil.None` marks removals, since nil cannot survive in a table.
+
+**Out of scope (respected):** promises, maid variants. Six modules, no more.
 
 ---
 
