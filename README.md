@@ -33,23 +33,33 @@ Before declaring a job blocked, read `docs/AUTOMATION.md`. Studio runs headlessl
 upload over HTTP, the creator dashboard is a website, and meshes and audio are generated.
 Almost nothing here actually needs hands.
 
-## How this is built
+## How this is built — hybrid (D-010)
 
-**Roblox Studio is the source of truth** (D-009). No Rojo, no build step.
+**Files are the source of truth. Studio verifies.**
 
 | | |
 |---|---|
-| Humans | Team Create, live in place **"hunt for money"** (`83234958310651`) |
-| Agents | Roblox Studio MCP — `multi_edit`, `execute_luau`, `generate_mesh`, `screen_capture` |
-| This repo | docs and the job board, plus a one-way script snapshot for history (job `P7`) |
+| Write code | `src/**`, synced by Rojo. Normal branches and PRs. |
+| Verify | Roblox Studio MCP — playtest, console, screenshots, read-only `execute_luau` |
+| World geometry | hand-built in Studio, **not** in git — coordinate via `ServerStorage.WorkLog` |
+| Place | **"hunt for money"** — `83234958310651` (universe `10694878805`) |
 
-Nothing in `src/` ever syncs back into Studio. Git is a backup, not a source.
+**Scripts flow one direction: files → Studio.** Never edit a script in Studio; Rojo overwrites
+it on the next sync, silently. Don't enable Team Create for scripts — it fights Rojo.
+
+```bash
+rokit install                # rojo, selene, stylua, run-in-roblox
+rojo serve                   # live sync into an open place
+./scripts/check.sh           # stylua + selene + build
+rojo build -o Hunt.rbxlx
+```
 
 ## Status
 
-Planning complete, nothing built yet. **68 jobs** across five tracks.
+**67 jobs.** `F1` (scaffold) and `F2` (contract freeze) are **done** — `src/shared/` holds the
+frozen `Types`, `Remotes`, and six `Config` modules, and `rojo build` produces a place.
+`P7` was cancelled by D-010.
 
-Day one, in parallel: **`F1`** (datamodel scaffold — gates every code job), **`P7`** (git
-snapshot — set it up before there's anything to lose), **`G1`** (store-page creative — gates
-revenue, depends on nothing).
+Next: **`F3`** (core utils, independent), **`F4`** (loader + Net). **`G1`** (store-page
+creative) still gates the most revenue and depends on nothing.
 

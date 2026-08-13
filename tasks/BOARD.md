@@ -44,8 +44,8 @@ The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MON
 | P3 | Asset generation conventions (`generate_mesh` / `insert_asset`) | World | 1 | F1 | TODO |
 | P4 | Integration tests during play | QA | 1 | P1 | TODO |
 | P5 | Storefront: gamepasses, products, place settings, badges | Architect | 3 | P2 | TODO |
-| P6 | Release checklist (publish is Studio's File → Publish) | Architect | 1,2 | P1,P4,P5,P7 | TODO |
-| P7 | **Git snapshot** — scripts out of Studio into history | Architect | 1 | F1 | TODO |
+| P6 | Release checklist + publish | Architect | 1,2 | P1,P4,P5 | TODO |
+| P7 | ~~Git snapshot~~ — cancelled by D-010, git covers it | — | — | — | **N/A** |
 
 ---
 
@@ -53,7 +53,7 @@ The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MON
 
 | ID | Job | Owner | Depends | Status |
 |---|---|---|---|---|
-| F1 | Datamodel scaffold + WorkLog claim system | Architect | — | **DONE** |
+| F1 | Project scaffold + datamodel + WorkLog | Architect | — | **DONE** |
 | F2 | Shared contracts: Types, Remotes, Config — **CONTRACT FROZEN** | Architect | F1 | **DONE** |
 | F3 | Core utils: Signal, Trove, RateLimiter, Format, TableUtil | Architect | F1 | TODO |
 | F4 | Two-phase loader + Net wrappers (server & client) | Architect | F2, F3 | TODO |

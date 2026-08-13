@@ -1,0 +1,46 @@
+{
+  "name": "FROSTLINE",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "Assets": {
+        "$path": "assets"
+      },
+      "Remotes": {
+        "$className": "Folder"
+      }
+    },
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server/Server.server.luau"
+      },
+      "Services": {
+        "$path": "src/server/Services"
+      },
+      "Lib": {
+        "$path": "src/server/Lib"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client/Client.client.luau"
+        },
+        "Controllers": {
+          "$path": "src/client/Controllers"
+        },
+        "UI": {
+          "$path": "src/client/UI"
+        }
+      }
+    },
+    "ServerStorage": {
+      "Tests": {
+        "$path": "tests"
+      }
+    }
+  }
+}

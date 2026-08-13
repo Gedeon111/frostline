@@ -28,3 +28,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Stray Aftman manifest — shadows rokit shims and breaks `rojo` on PATH.
+# rokit.toml is the real toolchain manifest.
+aftman.toml

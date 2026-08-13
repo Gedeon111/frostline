@@ -186,4 +186,57 @@ P1/P3/P6, new P7, C2/C3, D-006's open risk (now closed).
 
 ---
 
+### D-010 · 2026-08-13 · ACCEPTED · Hybrid: Rojo authors, Studio MCP verifies
+
+**Decision (Dionis's call).** Files are the source of truth again. All scripting and editing
+happens in `src/` through Rojo. The Roblox Studio MCP is kept, but **only for verification and
+inspection** — playtesting, console output, screenshots, read-only `execute_luau`. Authoring
+tools (`multi_edit`) are not used.
+
+Partially supersedes D-009: its Studio-as-source-of-truth clause is reversed. Its
+world-building clause survives — geometry is still hand-built in Studio (see below).
+
+**Why:** MCP authoring is measurably more expensive per operation. `search_game_tree` at depth
+2 returned ~60 entries, nearly all built-in services (`TimerService`, `CookiesService`,
+`HeatmapService`) — noise we paid for. `Grep`/`Glob` answer the same question for a fraction,
+the file tools carry no extra schema cost, and there is no per-call `studio_id` boilerplate.
+
+**Why not pure Rojo:** verification still needs the engine. F2 caught three real defects by
+running checks in Studio. Dropping the MCP entirely moves those catches to a human playtest,
+or nowhere. Keeping it read-only is strictly better than either extreme.
+
+**The rule that keeps them from fighting:** scripts flow **one direction only, files →
+Studio**. Nobody edits a script in Studio; Rojo overwrites it on the next sync, silently and
+with no history.
+
+**Cost:** Team Create is off again for scripts — Rojo and Team Create genuinely conflict.
+Geometry is still hand-built, so world work is coordinated through the WorkLog, not git.
+
+**Migration:** F1 and F2's nine scripts ported out of Studio into `src/`, verified
+byte-for-byte with a djb2 hash against the live datamodel. Seven matched exactly. Three
+differed by a total of 8 bytes — two blank lines and two comment-separator dashes, zero
+semantic difference — confirmed by inspection rather than assumed. `Config`, `Types`, and
+`Remotes` are unchanged; only their location moved.
+
+**Adopted from PR #1:** `rokit.toml`, `.luaurc`, `selene.toml`, `stylua.toml`,
+`scripts/check.sh`. Dionis's scaffold turned out to be exactly what the hybrid needs, so the
+work that D-009 invalidated is now in use.
+
+**Changed from his `default.project.json`:** the server and client bootstraps map as explicit
+files rather than directory `init.*.luau` markers, so `Services`/`Controllers` stay siblings of
+the bootstrap instead of nesting under it. That preserves the datamodel paths already
+documented in ARCHITECTURE §2 and used throughout the job packets.
+
+**Verified:** `rojo build` produces a 37KB place from the ported tree.
+
+**Note on churn:** this is the third foundation change before any gameplay code exists
+(D-002 → D-009 → D-010). Each flip has cost real work — PR #1 the first time, a port the
+second. The tooling question is now settled; the next reversal should require a stronger
+argument than the last two did.
+
+**Blast radius:** ARCHITECTURE §1–2, AUTOMATION channel 1, WORKFLOW §2/§5/§6/§8, F1/F4
+packets, P1/P4/P7, board.
+
+---
+
 <!-- Add new decisions below this line -->

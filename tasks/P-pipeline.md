@@ -175,30 +175,15 @@ Write the ordered checklist and the `execute_luau` snippet that verifies each it
 
 ---
 
-### [P7] Git snapshot — history and rollback
+### [P7] ~~Git snapshot~~ — **CANCELLED by D-010**
 
-**Owner:** Architect · **Depends on:** F1 · **Channel:** 1 + local git
+Scripts live in `src/` under git again, so there is nothing to snapshot out of Studio. Normal
+branches, commits, and PRs replace this entirely (WORKFLOW §6).
 
-**You own:** `tools/snapshot/` + the mirrored `src/` tree in git
+The gap it was going to cover and git still doesn't: **`Workspace` geometry has no version
+control.** It's hand-built in Studio and isn't in the repo. If that starts hurting, the answer
+is periodic `.rbxl` exports, not a script snapshotter — file a new job then.
 
-**Build:** the safety net Team Create doesn't give you (D-009).
-
-- Walk the datamodel with `search_game_tree` for `LuaSourceContainer`, `script_read` each
-  one, and write it to a mirrored path under `src/` (e.g.
-  `ServerScriptService.Services.SellService` → `src/ServerScriptService/Services/SellService.luau`).
-- Commit with a message naming what changed since the last snapshot.
-- **One direction only.** Nothing ever reads from `src/` back into Studio. If someone wants
-  to restore an old version, they read the file and paste it in deliberately — there is no
-  automatic sync, because an automatic sync is exactly what would fight Team Create.
-- Include a `--check` mode that reports drift without committing, so it can run as a
-  pre-publish gate in P6.
-
-**Done when:**
-- [ ] A full snapshot produces a `src/` tree matching the datamodel, committed and pushed
-- [ ] Running it twice with no changes produces no commit
-- [ ] Editing one script in Studio and re-running produces a one-file diff
-- [ ] `git log -p` on a script shows readable Luau history
-- [ ] The one-direction rule is stated at the top of the tool and in the README
-
-**Run it at the end of every working session.** A snapshot you didn't take is history you
-don't have.
+It earned its keep before being cancelled, though: D-010's migration used exactly the
+mechanism this job described, which is what made porting nine scripts out of Studio an hour's
+work instead of a rewrite.

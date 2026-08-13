@@ -4,18 +4,32 @@
 parallel workers code against. Changing it requires a `docs/DECISIONS.md` entry approved by
 the Architect. If your job "needs" a contract change, stop and file the RFC first.
 
-## 1. Workflow — Studio-native (see D-009)
+## 1. Workflow — hybrid (see D-010)
 
-**Roblox Studio is the source of truth.** Humans collaborate through Team Create; agents work
-through the Roblox Studio MCP server. There is no build step and no file sync.
+**Files are the source of truth.** All scripting and editing happens in `src/`, synced into
+Studio by Rojo. The Studio MCP is kept for **verification only**.
 
-| Who | How |
-|---|---|
-| You + collaborator | Team Create, live in the place |
-| Agents | Studio MCP — `multi_edit`, `execute_luau`, `search_game_tree`, `screen_capture`, `start_stop_play`, `generate_mesh`, `insert_asset` |
-| Git | one-directional script snapshot for history and rollback (job `P7`) — **a backup, never a source** |
+| Surface | Tool | Notes |
+|---|---|---|
+| Write / edit scripts | `src/**` + `Read`/`Edit`/`Grep` | cheap, git-native, branches and PRs work |
+| Sync into the engine | `rojo serve` / `rojo build` | one direction: files → Studio |
+| Playtest, console, screenshots | Studio MCP | `start_stop_play`, `get_console_output`, `screen_capture` |
+| Run checks in-engine | Studio MCP `execute_luau` | **read-only**; never mutate scripts |
+| World geometry | Studio, by hand | not managed by Rojo (see §7) |
 
-Nothing ever flows from git back into Studio. That one rule is what keeps them from fighting.
+**The rule: scripts flow one direction, files → Studio.** Never edit a script in Studio — Rojo
+overwrites it on the next sync, silently, with no history. `multi_edit` is not used on this
+project.
+
+**Do not enable Team Create for scripts.** It makes Studio authoritative and fights Rojo.
+Geometry work is coordinated through `ServerStorage.WorkLog` instead (WORKFLOW §2).
+
+```bash
+rokit install                       # rojo, selene, stylua, run-in-roblox
+rojo serve                          # live sync into an open place
+rojo build -o Hunt.rbxlx            # produce a place file
+./scripts/check.sh                  # stylua + selene + build
+```
 
 **No Knit, no Fusion, no Roact, no Wally.** Frameworks create version drift between workers
 and hide control flow. We use a small loader (§2) and plain Instance construction for UI.
@@ -24,8 +38,27 @@ currently ProfileStore only.
 
 ## 2. Datamodel layout
 
-Dot-notation paths, exactly as the MCP addresses them. **This tree is a contract** — create
-things where the plan says, or dependent jobs won't find them.
+Left column is the file, right is where Rojo puts it. **Both are a contract** — dependent jobs
+reference the datamodel path, and `default.project.json` is what makes it true.
+
+```
+src/shared/**              →  ReplicatedStorage.Shared
+src/server/Server.server.luau →  ServerScriptService.Server        (the bootstrap Script)
+src/server/Services/**     →  ServerScriptService.Services
+src/server/Lib/**          →  ServerScriptService.Lib
+src/client/Client.client.luau →  StarterPlayerScripts.Client       (the bootstrap LocalScript)
+src/client/Controllers/**  →  StarterPlayerScripts.Controllers
+src/client/UI/**           →  StarterPlayerScripts.UI
+assets/**                  →  ReplicatedStorage.Assets
+tests/**                   →  ServerStorage.Tests
+                           →  ReplicatedStorage.Remotes  (empty Folder, Net fills at runtime)
+```
+
+**Two things Rojo deliberately does NOT manage**, because it would delete them on sync:
+`Workspace` (hand-built geometry) and `ServerStorage.WorkLog` (live claim state). Neither
+appears in `default.project.json`, so Rojo leaves them alone.
+
+The resulting datamodel:
 
 ```
 ReplicatedStorage

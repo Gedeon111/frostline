@@ -25,25 +25,25 @@ merges or collides.
 elsewhere, write it under `## Handoffs` in your notes and the Architect routes it. Do not
 "just quickly fix it."
 
-This mattered before. Since D-009 it is **critical**: Team Create's script locking protects
-humans from each other, but MCP edits go straight into the datamodel. Two agents on one
-script means **no merge, no warning, last write silently wins.** The table below is the only
-thing standing between you and lost work.
-
 | Path | Owner |
 |---|---|
-| `ReplicatedStorage.Shared.**` | Architect only |
-| `ServerScriptService.Services.<X>` | The job that created it |
-| `StarterPlayerScripts.Controllers.**`, `.UI.**` | Client Dev |
-| `Workspace.World.**`, `ReplicatedStorage.Assets.**` | World/Tech Art |
-| `ServerStorage.Tests.**` | QA |
+| `src/shared/**` | Architect only |
+| `src/server/Services/<X>.luau` | The job that created it |
+| `src/client/Controllers/**`, `src/client/UI/**` | Client Dev |
+| `Workspace.World.**` (Studio), `assets/**` | World/Tech Art |
+| `tests/**` | QA |
 | `docs/ECONOMY.md` | Economy Designer |
 | `docs/*` (rest) | Architect |
 | `tasks/BOARD.md` | Everyone — status column only, your row only |
 
-### The WorkLog — an actual lock, not a convention
+### The WorkLog — for Studio work only (D-010)
 
-`ServerStorage.WorkLog` is live in the place. Before editing any script:
+Since D-010, **scripts are coordinated by git** — branches and PRs do that job. The WorkLog's
+remaining scope is the part git cannot see: **hand-built geometry in `Workspace`**, and any
+long-running Studio session. Claim a zone before building it.
+
+`ServerStorage.WorkLog` is live in the place, and is not managed by Rojo (so a sync won't
+erase it). Usage:
 
 ```lua
 local WorkLog = require(game.ServerStorage.WorkLog.README)
@@ -120,6 +120,7 @@ worker as its opening message. Each packet has:
 
 ## 5. Definition of Done — every job, no exceptions
 
+- [ ] `./scripts/check.sh` clean — stylua, selene, `rojo build`
 - [ ] The place runs clean — `start_stop_play`, then `get_console_output` shows no errors
 - [ ] `Tests.RunAll` green (P1)
 - [ ] Strict Luau types on every public function (`--!strict` at script top)
@@ -128,31 +129,32 @@ worker as its opening message. Each packet has:
 - [ ] Server-authoritative: no client input is trusted without revalidation
 - [ ] No `print`/`warn` outside a `Log` util guarded by `GameConfig.Debug`
 - [ ] Every connection/instance you create is cleaned up (use `Trove`)
-- [ ] Your `Done when` list is literally checked, item by item, in your handoff notes
-- [ ] `tasks/BOARD.md` — your row set to `DONE`
-- [ ] A `## Handoffs` note listing anything you needed but couldn't touch
-- [ ] **`P7` snapshot run** so the work exists in git history
+- [ ] Your `Done when` list is literally checked, item by item, in the PR description
+- [ ] `tasks/BOARD.md` — your row set to `DONE`, with the PR link
+- [ ] A `## Handoffs` section listing anything you needed but couldn't touch
 
-## 6. Version control
+## 6. Version control (D-010)
 
-There are no branches and no PRs — Studio is the source of truth and everyone works in one
-live place (D-009). What replaces them:
+Scripts live in git, so normal git applies again:
 
-- **Claim on the board before you start.** That's the lock.
-- **Run the `P7` snapshot at the end of every session.** It reads scripts out of Studio and
-  commits them. A snapshot you didn't take is history you don't have.
-- **Snapshot before anything risky**, so there's a known-good commit to read back from.
-- Restoring is deliberate: read the old file from git, paste it in. Nothing auto-syncs back
-  into Studio, ever — an automatic sync is precisely what would fight Team Create.
-- Review happens by reading the other person's scripts in Studio, or by reading the snapshot
-  diff in git. Do it — nobody's merging for you now.
+- Branch: `job/<ID>-<slug>` e.g. `job/A3-creature-service`
+- Commit: `[A3] add respawn timer`
+- PR title: `[A3] CreatureService`
+- One job = one PR. Never bundle two job IDs.
+- The other person reviews and merges. Don't merge your own.
+- **`git pull` before you start** — see the note at the end of §2.
+
+**Geometry is the exception.** `Workspace` is hand-built in Studio and is not in git at all,
+so it has no branches and no diffs. Coordinate world work through the WorkLog
+(`owns = { "Workspace.World.shelf_ice" }`) and expect no safety net if two people build the
+same zone.
 
 ## 7. You can do more than you think
 
-Read `docs/AUTOMATION.md` before declaring anything blocked. You author directly in Studio
-through the MCP — create scripts, run Luau, generate meshes, screenshot, playtest. Gamepasses
-and the game page are reachable through Chrome MCP; the icon and thumbnails through
-Higgsfield. The pipeline jobs `P1`–`P7` exist to make the rest routine.
+Read `docs/AUTOMATION.md` before declaring anything blocked. You write code in `src/` and sync
+it with Rojo, then verify in the real engine through the Studio MCP — playtest, read the
+console, screenshot. Meshes generate natively; gamepasses and the game page are reachable
+through Chrome MCP; the icon and thumbnails through Higgsfield.
 
 **"I can't do this, a human must" is almost always wrong here.** Before you write it, check
 which of the four channels covers it.

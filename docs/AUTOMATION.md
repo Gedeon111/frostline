@@ -5,9 +5,29 @@ publishing, storefront setup — is done by an agent. There is no manual-work tr
 
 Four channels cover it. Every job packet names which one it uses.
 
-## Channel 1 — Roblox Studio MCP (primary; verified connected)
+## Channel 0 — Rojo + local toolchain (where code is written)
 
-The main authoring surface. Studio runs live; the MCP server bridges agents into it.
+Per **D-010**, all scripting happens in `src/` with the ordinary file tools, then syncs into
+Studio. `Grep`/`Glob` beat `search_game_tree` badly for finding things, cost no extra schema,
+and need no `studio_id`.
+
+```bash
+rokit install     rojo serve     rojo build -o Hunt.rbxlx     ./scripts/check.sh
+```
+
+Toolchain pinned in `rokit.toml`: rojo 7.7, selene 0.31, StyLua 2.5, run-in-roblox 0.3.
+
+> **Local gotcha:** a stray all-commented-out `aftman.toml` in the project shadows rokit's
+> shims, so `rojo` on PATH fails with an Aftman error. Rojo 7.7.0-rc.1 is cached at
+> `~/.aftman/tool-storage/rojo-rbx/rojo/7.7.0-rc.1/rojo.exe` and works directly. Also:
+> `rokit install` currently can't reach GitHub from this machine — same TLS story as the git
+> push needing `http.sslBackend=schannel`.
+
+## Channel 1 — Roblox Studio MCP (verification only)
+
+**Not an authoring surface.** D-010 restricts this to checking work, never writing it —
+`multi_edit` is not used on this project. Editing a script here gets it silently overwritten
+on the next Rojo sync.
 
 Verified working against place **"hunt for money"** (PlaceId `83234958310651`):
 
@@ -16,9 +36,9 @@ Verified working against place **"hunt for money"** (PlaceId `83234958310651`):
 | `list_roblox_studios` | **call first** — every other call needs a `studio_id` |
 | `get_studio_state` | current mode (Edit / Client / Server) before acting |
 | `search_game_tree` · `inspect_instance` | explore the datamodel |
-| `script_read` · `script_grep` · `script_search` | read existing code |
-| `multi_edit` | **create and edit scripts** — atomic, multi-edit, creates by className |
-| `execute_luau` | run code in Edit / Client / Server; use for tests and bulk operations |
+| `script_read` · `script_grep` · `script_search` | reading synced code — but prefer `Grep` on `src/`, it's cheaper |
+| ~~`multi_edit`~~ | **do not use** — Rojo owns scripts (D-010) |
+| `execute_luau` | run tests and checks. **Read-only:** never mutate a script's `Source` |
 | `start_stop_play` · `get_console_output` | playtest and read errors |
 | `screen_capture` | see the viewport, with optional camera placement |
 | `generate_mesh` · `generate_material` · `generate_procedural_model` | **native asset generation** |
@@ -29,15 +49,13 @@ Verified working against place **"hunt for money"** (PlaceId `83234958310651`):
 
 **Rules of use:**
 - Always `list_roblox_studios` first. Several instances are commonly open; confirm the target
-  is the right place before modifying anything.
+  is the right place before touching anything.
 - Check `get_studio_state` before a call that needs Client or Server — those datamodels only
   exist during play.
-- Two agents must never edit the same script. MCP edits go straight into the datamodel:
-  **no merge, no conflict warning, last write wins.** Track ownership in `WORKFLOW.md` §2 is
-  the only thing preventing this.
-
-**Still local, still useful:** `git` for the P7 snapshot, `node`/`python` for Open Cloud
-scripting. Rojo, rokit, run-in-roblox, and Blender are **no longer needed** — see D-009.
+- **Sync before you verify.** `rojo serve` must be connected, or you're testing stale code —
+  the single easiest way to draw a wrong conclusion on this project.
+- `Workspace` and `ServerStorage.WorkLog` are not Rojo-managed, so editing those in Studio is
+  legitimate. Scripts are not.
 
 ## Channel 2 — Roblox Open Cloud API (needs one API key)
 
