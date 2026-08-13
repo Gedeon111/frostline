@@ -52,7 +52,7 @@ Aurora Basin `aurora` · Black Ice `blood` on `night`.
 | Aurora Basin | 0 | `#2A3A4A` | 600, `night` | Night, green sky curtain, snow self-glows. |
 | Black Ice | 2 | `#181818` | 350, `night` | Near-black, red rim light, blowing snow. |
 
-Transitions are tweened by `WorldGen` over 1.5s when a player crosses a zone boundary.
+Transitions are tweened by `ZoneService` over 1.5s when a player crosses a zone boundary.
 
 ## 4. Creature spec (job C4 — needs a human modeller)
 
@@ -66,7 +66,7 @@ Transitions are tweened by `WorldGen` over 1.5s when a player crosses a zone bou
 - **Eyes:** two small emissive parts. Always on. This is the "fictional creature" tell.
 - **Animations needed:** `Idle`, `Walk`, `Hit` (0.2s flinch), `Death` (0.8s topple).
   Driven by `AnimationController`, not `Humanoid`.
-- Export as `assets/Creatures/<tierId>.rbxmx`. WorldGen clones from `ReplicatedStorage.Assets`.
+- Lives at `ReplicatedStorage.Assets.Creatures.<tierId>`. `CreatureService` clones from there.
 
 ## 5. Trader NPC spec (job C5)
 

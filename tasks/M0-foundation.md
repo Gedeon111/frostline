@@ -5,36 +5,38 @@ Everything blocks on these four. Do them in order, one worker (the Architect). H
 
 ---
 
-### [F1] Repo scaffold & toolchain
+### [F1] Datamodel scaffold
 
-**Owner:** Architect · **Depends on:** — · **Blocks:** everything
+**Owner:** Architect · **Depends on:** — · **Blocks:** everything · **Channel:** 1
 
-**Read first:** `README.md`, `docs/ARCHITECTURE.md` §1–2
+**Read first:** `README.md`, `docs/ARCHITECTURE.md` §1–2, `docs/DECISIONS.md` D-009
 
-**You own:** `rokit.toml`, `default.project.json`, `selene.toml`, `stylua.toml`, `.luaurc`,
-`.gitignore`, `scripts/check.sh`, `src/**` (empty placeholder dirs with `.gitkeep`)
+**You own:** the folder structure in the place. Nothing else.
 
 **Build:**
-- `rokit.toml` pinning: `rojo 7.4+`, `selene 0.27+`, `stylua 0.20+`, `run-in-roblox 0.3+`
-- `default.project.json` mapping exactly the tree in ARCHITECTURE §2:
-  `src/shared → ReplicatedStorage.Shared`, `src/server → ServerScriptService.Server`,
-  `src/client → StarterPlayer.StarterPlayerScripts.Client`,
-  `src/world → ServerScriptService.World`, `assets → ReplicatedStorage.Assets`,
-  plus a `ReplicatedStorage.Remotes` folder placeholder
-- `.luaurc` with `"languageMode": "strict"`
-- `selene.toml` using the `roblox` std, warn on unused, error on undefined global
-- `stylua.toml`: 4-space indent, 100 col, double quotes
-- `scripts/check.sh` running stylua --check, selene, and `rojo build -o /tmp/out.rbxlx`
-- A `src/server/init.server.luau` and `src/client/init.client.luau` that each print one
-  boot line, so the project builds and runs from commit one
+- `list_roblox_studios` first, confirm you're targeting **"hunt for money"**
+  (PlaceId `83234958310651`), and `get_studio_state` to confirm Edit mode.
+- **Survey before creating.** The place already has a script in `ServerScriptService` and one
+  in `StarterPlayer`, plus 4 children in `Workspace`. `search_game_tree` and `script_read`
+  them. Report what's there; do not delete or overwrite anything without saying so first.
+- Create exactly the tree in ARCHITECTURE §2 — `ReplicatedStorage.Shared` with `Config`,
+  `Util`, `Assets`; `ServerScriptService.Services` and `Lib`; `StarterPlayerScripts.Controllers`
+  and `UI`; `Workspace.World` and `Workspace.Creatures`; `ServerStorage.Tests`.
+- `ServerScriptService.Bootstrap` (Script) and `StarterPlayerScripts.Bootstrap` (LocalScript),
+  each printing one boot line. F4 fills them in.
+- Verify with `start_stop_play`: the place runs, both boot lines appear in
+  `get_console_output`, no errors.
 
 **Done when:**
-- [ ] `rokit install && ./scripts/check.sh` exits 0 on a clean clone
-- [ ] `rojo build -o Hunt.rbxlx` produces a place file
-- [ ] Every directory in ARCHITECTURE §2 exists
-- [ ] `.gitignore` covers `*.rbxlx`, `*.rbxl`, `/build`, `.DS_Store`
+- [ ] Existing scripts surveyed and reported, nothing destroyed
+- [ ] Every path in ARCHITECTURE §2 exists at the exact name
+- [ ] Play test runs clean with both boot lines in the console
+- [ ] A `search_game_tree` dump of the new structure is in the handoff notes
 
-**Out of scope:** any gameplay code, any Config content, CI pipelines.
+**Out of scope:** gameplay code, Config content, world geometry.
+
+**Note:** this job used to be Rojo/rokit/selene/StyLua scaffolding. D-009 removed all of it.
+There is no toolchain to install and no build step — you are creating folders in a live place.
 
 ---
 
@@ -47,7 +49,8 @@ parallel. Take the time.
 
 **Read first:** `docs/ARCHITECTURE.md` §3–4 (frozen contract), all of `docs/ECONOMY.md`
 
-**You own:** `src/shared/Types.luau`, `src/shared/Remotes.luau`, `src/shared/Config/*.luau`
+**You own:** `ReplicatedStorage.Shared.Types`, `.Remotes`, and everything under
+`.Config` — all ModuleScripts, created with `multi_edit`
 
 **Build:**
 
@@ -64,9 +67,10 @@ signature), exactly matching ARCHITECTURE §3. Not the instances; `Net` creates 
   exploits, not customers), `Debug`
 - `Creatures.luau` — 5 tiers, all ECONOMY §1 columns, plus `modelName`, `respawnSeconds`,
   and the golden variant definition
-- `Zones.luau` — 5 zones: `id`, `displayName`, `unlockCost`, `creatureTier`, `population`,
-  `origin` + `size` (world-space bounds), `spawnArea`, `sellPads`, `lighting` block from
-  ART_BIBLE §3
+- `Zones` — 5 zones: `id`, `displayName`, `unlockCost`, `creatureTier`, `population`, and the
+  **instance names** of markers the code looks up (`spawnRegion`, `sellPads`, `barrier`),
+  plus the `lighting` block from ART_BIBLE §3. **No geometry, no coordinates** — the map is
+  hand-built in Studio now (D-009), and these names are the contract between builder and code
 - `Upgrades.luau` — 3 tracks, each with `baseValue`, `perLevel` or `growth`, `maxLevel = 10`,
   and a **`costs` array of 9 literal integers** transcribed from ECONOMY §2. Do not compute
   costs at runtime — a formula drifts from the design doc, a literal table cannot.
@@ -78,12 +82,13 @@ signature), exactly matching ARCHITECTURE §3. Not the instances; `Net` creates 
 files the profile-schema RFC for the growth fields. Leave room for them; don't invent them.
 
 **Done when:**
-- [ ] Every number in `docs/ECONOMY.md` appears in exactly one Config file
-- [ ] Every Config table is typed against `Types.luau` and passes strict mode
+- [ ] Every number in `docs/ECONOMY.md` appears in exactly one Config module
+- [ ] Every Config table is typed against `Types` and passes strict mode
 - [ ] `Upgrades.costs` sums match the totals stated in ECONOMY §2 (53,629 / 127,750 / 170,581)
 - [ ] Remote list matches ARCHITECTURE §3 exactly — no extras, no omissions
 - [ ] A one-line comment above every table pointing at its doc section
-- [ ] You post the frozen contract diff on the board and announce the freeze
+- [ ] `execute_luau` requires every Config module successfully and prints a summary count
+- [ ] You announce the freeze on the board
 
 **Out of scope:** any behaviour. These files contain data and types only — no functions
 beyond pure lookups like `Upgrades.GetCost(track, level)`.
@@ -94,7 +99,7 @@ beyond pure lookups like `Upgrades.GetCost(track, level)`.
 
 **Owner:** Architect · **Depends on:** F1 · **Runs parallel with F2**
 
-**You own:** `src/shared/Util/*.luau`
+**You own:** `ReplicatedStorage.Shared.Util.*`
 
 **Build:**
 - `Signal.luau` — minimal typed signal (`Connect`, `Fire`, `Destroy`). ~60 lines.
@@ -119,24 +124,25 @@ beyond pure lookups like `Upgrades.GetCost(track, level)`.
 
 **Owner:** Architect · **Depends on:** F2, F3
 
-**You own:** `src/server/init.server.luau`, `src/client/init.client.luau`,
-`src/server/Services/Net.luau`, `src/client/Controllers/Net.luau`
+**You own:** `ServerScriptService.Bootstrap`, `StarterPlayerScripts.Bootstrap`,
+`ServerScriptService.Services.Net`, `StarterPlayerScripts.Controllers.Net`
 
 **Build:**
 - Both bootstraps: require every ModuleScript in the sibling `Services`/`Controllers` folder,
   call `.Init()` on all (pcall-wrapped, log failures loudly), then `.Start()` on all. Log
   total boot time. A service failing `Init` must not prevent the others from starting.
-- `server/Net.luau`: creates every remote from `shared/Remotes.luau` into
+- `Services.Net`: creates every remote from `Shared.Remotes` into
   `ReplicatedStorage.Remotes` during `Init`. Exposes
   `Net.On(name, handler)` / `Net.Fire(player, name, ...)` / `Net.FireAll(name, ...)`.
   **Every inbound handler is wrapped in a rate limiter** (per-player, per-remote budget from
   `GameConfig`) and a pcall. Reject silently, log on the server.
-- `client/Net.luau`: `WaitForChild`s the folder, exposes `Net.Fire(name, ...)`,
+- `Controllers.Net`: `WaitForChild`s the folder, exposes `Net.Fire(name, ...)`,
   `Net.Invoke(name, ...)` with a 10s timeout, `Net.On(name, handler)`.
 
 **Done when:**
 - [ ] Server boots with zero services present and logs cleanly
-- [ ] Every remote in `Remotes.luau` exists under `ReplicatedStorage.Remotes` at runtime
+- [ ] Every remote in `Shared.Remotes` exists under `ReplicatedStorage.Remotes` at runtime,
+      verified with `start_stop_play` + `search_game_tree`
 - [ ] A handler that throws does not kill the remote or the server
 - [ ] Rate limiting is applied centrally — **no individual service ever writes a rate check**
 - [ ] Client `Net.Invoke` on a dead remote rejects after timeout instead of hanging

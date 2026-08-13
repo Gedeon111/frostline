@@ -121,7 +121,7 @@ double-clicks and rejoins; the streak survives a server restart.
 
 **Build:** `OrderedDataStore` on `totalCashEarned`, updated on a throttle (not per-sell —
 that's a datastore budget fire); top 50 fetched every 60s and cached; physical boards in the
-outpost built by WorldGen showing rank, name, and abbreviated cash.
+outpost showing rank, name, and abbreviated cash.
 
 **Done when:** DataStore request budget stays under 30% at 20 players; boards update without
 a rejoin; a player's own rank shows even when outside the top 50.

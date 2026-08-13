@@ -152,21 +152,24 @@ eyeballed.
 
 ---
 
-### [C3] WorldGen zones 2–5
+### [C3] Build zones 2–5
 
-**Owner:** World · **Depends on:** C2
+**Owner:** World (in Studio) · **Depends on:** C2 · **Channel:** 1
 
-**You own:** `src/world/ZoneBuilder.luau` (extension), `src/world/Zones/*.luau`
+**You own:** `Workspace.World.{glacier_ridge, crevasse_fields, aurora_basin, black_ice}`
 
-**Build:** each zone as a builder module driven by config — Glacier Ridge (sloped, blue ice
-walls), Crevasse Fields (dark cracks, narrow bridges — real fall risk, add a respawn volume),
-Aurora Basin (night, sky curtain, self-glowing snow), Black Ice (near-black, red rim light,
-blowing snow particles). Per-zone lighting from ART_BIBLE §3, tweened over 1.5s on boundary
-crossing. Each zone gets its own satellite sell pad so the ≤ 20s walk-back rule holds.
+**Build:** Glacier Ridge (sloped, blue ice walls), Crevasse Fields (dark cracks, narrow
+bridges — real fall risk, add a respawn volume), Aurora Basin (night, sky curtain,
+self-glowing snow), Black Ice (near-black, red rim light, blowing snow). Per-zone lighting
+from ART_BIBLE §3, tweened over 1.5s on boundary crossing. Each zone gets its own satellite
+sell pad so the ≤ 20s walk-back rule holds.
 
-**Done when:** all 5 zones build in < 8s total; ≤ 20k parts at rest across the map; the
-walk-back rule holds in every zone, measured; no zone is reachable from another except through
-its barrier; a player falling into a crevasse respawns rather than falling forever.
+Same naming contract as C2 — every zone needs `SpawnZone`, `SellPad`, `Barrier`.
+
+**Done when:** ≤ 20k parts at rest across the whole map; the walk-back rule holds in every
+zone, measured not estimated; no zone is reachable from another except through its barrier;
+a player falling into a crevasse respawns rather than falling forever; all five read as
+visually distinct in `screen_capture` with no UI.
 
 ---
 
@@ -178,19 +181,18 @@ its barrier; a player falling into a crevasse respawns rather than falling forev
 - Write `docs/specs/creature-model.md` from ART_BIBLE §4 first: per-tier dimensions, tri/part
   budget, pivot placement, attachment names, animation names and durations, naming convention.
   The spec is the prompt source — a vague prompt produces a generic bear.
-- Run the P3 pipeline in batch for all 5 tiers: Higgsfield `generate_image` (concept, one
-  prompt per tier derived from the spec's silhouette and tint rules) → `generate_3d` →
-  Blender convert → Open Cloud upload → asset IDs into config.
-- Assemble each into a Roblox Model with a PrimaryPart, `AnimationController`, and emissive
-  eye parts, via a `run-in-roblox` assembly script. Export `.rbxmx` into `assets/Creatures/`.
+- Run `generate_mesh` for all 5 tiers, one prompt per tier derived from the spec's silhouette
+  and tint rules. No conversion, no upload — it lands in the datamodel directly.
+- Assemble each into a Model with a PrimaryPart, `AnimationController`, and emissive eye
+  parts, via `execute_luau`. Parent under `ReplicatedStorage.Assets.Creatures.<tierId>`.
 - Author the 4 animations (`Idle`, `Walk`, `Hit` 0.2s, `Death` 0.8s) as KeyframeSequences
   built in code and uploaded — for a 12-part rigid model, hand-authored keyframes in Luau are
   more controllable than generated motion and far quicker to iterate.
 - **Iterate on the prompt until the silhouette rule passes.** Render each tier from behind at
-  100 studs via a `run-in-roblox` screenshot and check it reads as a bear. Generation gives
-  you five tries cheaply; use them.
+  100 studs via `screen_capture` and check it reads as a bear. Generation gives you five
+  tries cheaply; use them.
 
-**Done when:** all 5 tiers exist as `.rbxmx` with real uploaded mesh IDs; each ≤ 400 tris,
+**Done when:** all 5 tiers exist under `Assets.Creatures`; each ≤ 400 tris,
 ≤ 12 parts, zero Humanoids; all 4 animations play via `AnimationController`; the 100-stud
 silhouette check passes for every tier; the placeholder generator from A4 is no longer used.
 
@@ -208,11 +210,12 @@ depiction; state this constraint *inside the generation prompt*, not just the do
 harpoon tiers with grip attachment placement. Generate, convert, upload, assemble, export into
 `assets/Props/`, `assets/Traders/`, `assets/Tools/`.
 
-Simple architectural props may be cheaper to build directly as part assemblies in `WorldGen`
-than to generate as meshes — a rectangular hut is 6 parts. Use generation for the trader and
-the harpoons, code for the buildings.
+Simple architectural props are cheaper as part assemblies than as generated meshes — a
+rectangular hut is 6 parts. Use `generate_mesh` for the trader and harpoons, `search_asset` /
+`insert_asset` where the marketplace already has something usable, and plain parts for
+buildings.
 
-**Done when:** WorldGen places every prop from config; harpoons attach correctly at all 4
+**Done when:** every prop is placed in the zones; harpoons attach correctly at all 4
 tiers; the trader reads as a parka-wearing researcher and depicts no real culture; prop part
 count fits the C3 budget.
 
@@ -233,7 +236,7 @@ Chrome MCP, collect IDs for the 18 slots, and move on. Free, pre-moderated, and 
 to the player. Record which path was taken in the PR.
 
 **Done when:** every trigger in `SoundController` maps to a real asset ID; each sound is
-audibly correct when played via `run-in-roblox`; the game still runs without errors if any
+audibly correct when played via `execute_luau`; the game still runs without errors if any
 ID is 0.
 
 ---
@@ -261,9 +264,9 @@ before/after pacing table, and E1's invariant suite still passes afterward.
 
 **Owner:** World · **Depends on:** C3–C6 · **Channel:** 1
 
-**Build:** a `run-in-roblox` audit script that loads the built place and, for each zone:
-captures a screenshot from a fixed camera position with UI hidden, dumps part count, counts
-draw calls, and verifies every referenced asset ID resolves. Assemble the five screenshots
+**Build:** an audit pass that, for each zone, uses `screen_capture` with a fixed
+`camera_position` and `look_at_position`, then `execute_luau` to dump part count and verify
+every referenced asset path resolves. Assemble the five screenshots
 into `docs/specs/zone-review.md`.
 
 Then check the results yourself against ART_BIBLE §1–3: are the five zones distinguishable

@@ -4,56 +4,66 @@
 parallel workers code against. Changing it requires a `docs/DECISIONS.md` entry approved by
 the Architect. If your job "needs" a contract change, stop and file the RFC first.
 
-## 1. Toolchain — why file-based
+## 1. Workflow — Studio-native (see D-009)
 
-**The entire game is source files**, synced into Studio by Rojo. Studio is a *runtime*, never
-an authoring tool. Hand-authoring in the Studio UI produces a binary blob that can't be
-diffed, reviewed, split across parallel workers, or regenerated — which would make most of
-this board unassignable.
+**Roblox Studio is the source of truth.** Humans collaborate through Team Create; agents work
+through the Roblox Studio MCP server. There is no build step and no file sync.
 
-Studio still *runs* the game, and agents drive it headlessly via `run-in-roblox` — see
-`docs/AUTOMATION.md`. What's ruled out is authoring by hand in the Studio UI, not using Studio.
+| Who | How |
+|---|---|
+| You + collaborator | Team Create, live in the place |
+| Agents | Studio MCP — `multi_edit`, `execute_luau`, `search_game_tree`, `screen_capture`, `start_stop_play`, `generate_mesh`, `insert_asset` |
+| Git | one-directional script snapshot for history and rollback (job `P7`) — **a backup, never a source** |
 
-- **rokit** — toolchain manager (`rokit.toml`)
-- **Rojo 7** — source ⇄ Studio sync (`default.project.json`)
-- **selene** — Luau lint (`selene.toml`)
-- **StyLua** — formatter (`stylua.toml`)
-- **run-in-roblox** — headless test runner for CI
-- **No Wally, no package manager.** Third-party code is vendored as a single file under
-  `src/server/Lib/` with its license header intact. Currently: ProfileStore only.
+Nothing ever flows from git back into Studio. That one rule is what keeps them from fighting.
 
-No Knit, no Fusion, no Roact. Frameworks create version drift between workers and hide
-control flow. We use a 30-line loader (§2) and plain Instance construction for UI.
+**No Knit, no Fusion, no Roact, no Wally.** Frameworks create version drift between workers
+and hide control flow. We use a small loader (§2) and plain Instance construction for UI.
+Third-party code is pasted as a single ModuleScript with its license header intact —
+currently ProfileStore only.
 
-## 2. Folder layout
+## 2. Datamodel layout
+
+Dot-notation paths, exactly as the MCP addresses them. **This tree is a contract** — create
+things where the plan says, or dependent jobs won't find them.
 
 ```
-src/
-  shared/                    → ReplicatedStorage.Shared
-    Config/                  ★ ARCHITECT-OWNED. Every tunable number lives here.
-      GameConfig.luau          global constants (swing cd, respawn, autosave)
-      Zones.luau               5 zone defs: bounds, spawn points, unlock cost, lighting
-      Creatures.luau           5 tiers: hp, drops, weight, value, model name, variants
-      Upgrades.luau            3 tracks x 10 levels: effect value + cost curve
-      Tools.luau               harpoon tiers: model, damage mult, swing anim
-      Products.luau            gamepass/devproduct IDs + effects
-    Types.luau               ★ shared Luau type defs. Import, never redefine.
-    Remotes.luau             ★ remote NAME + signature table (§3)
-    Util/
-      Signal.luau  Trove.luau  RateLimiter.luau  Format.luau  TableUtil.luau
-  server/                    → ServerScriptService.Server
-    init.server.luau         bootstrap/loader
-    Services/                one file per service, see §5
-    Lib/ProfileStore.luau    vendored
-  client/                    → StarterPlayerScripts.Client
-    init.client.luau         bootstrap/loader
-    Controllers/             one file per controller
-    UI/                      code-built GUI: Ui.luau builder + one file per screen
-  world/                     → ServerScriptService.World
-    WorldGen.luau            builds the map from Config/Zones at runtime (see §7)
-assets/                      → ReplicatedStorage.Assets (.rbxmx, human-exported)
-tests/                       *.spec.luau, run headless
+ReplicatedStorage
+  Shared
+    Config/                ★ ARCHITECT-OWNED. Every tunable number lives here.
+      GameConfig             global constants (swing cd, respawn, autosave)
+      Zones                  5 zones: unlock cost, tier, population, spawn region names
+      Creatures              5 tiers: hp, drops, weight, value, model name, variants
+      Upgrades               3 tracks x 10 levels: effect value + cost curve
+      Companions / Eggs      added by G2
+      Tools / Products / Audio   asset + product ids
+    Types                  ★ shared Luau type defs. Import, never redefine.
+    Remotes                ★ remote NAME + signature table (§3)
+    Util/                    Signal · Trove · RateLimiter · Format · TableUtil · Log
+  Assets/                  Creatures · Props · Traders · Tools   (models, see §7)
+  Remotes/                 created at runtime by Net from Shared.Remotes
+
+ServerScriptService
+  Bootstrap                Script — the loader
+  Services/                one ModuleScript per service, see §5
+  Lib/ProfileStore         pasted, license header intact
+
+StarterPlayer.StarterPlayerScripts
+  Bootstrap                LocalScript — the loader
+  Controllers/             one ModuleScript per controller, see §6
+  UI/                      Ui builder + one ModuleScript per screen
+
+Workspace
+  World/                   hand-built zone geometry (see §7)
+  Creatures/               runtime spawn parent — never edited by hand
+
+ServerStorage
+  Tests/                   spec ModuleScripts, run via execute_luau
 ```
+
+**Naming is load-bearing.** `multi_edit` and `search_game_tree` address scripts by exact
+path. Every packet references `ServerScriptService.Services.SellService`; create it at
+`ServerScriptService.SellService` and the jobs that depend on it break.
 
 ### Loader pattern
 
@@ -204,15 +214,39 @@ It also returns a `breakdown` table so the HUD can show the player exactly what'
 | `SoundController` | SFX bus, per-zone ambience/music crossfade, settings respect |
 | `CameraController` | slight FOV kick on swing, no shake beyond 0.15 studs |
 
-## 7. World generation
+## 7. World and assets (revised by D-009)
 
-`world/WorldGen.luau` builds the entire map at server start from `Config/Zones.luau`:
-terrain regions, ice-wall barriers, sell pads, spawn point markers, per-zone `Lighting`
-blends. Hand-modelled props (bear models, trader NPCs, outpost buildings) live in
-`assets/*.rbxmx` and are *placed* by WorldGen at coordinates from config.
+**Zones are built by hand in Studio**, under `Workspace.World.<zoneId>`. A human doing level
+design produces a better map than a config table, and Team Create makes that collaborative.
+The earlier code-generation approach existed only because agents couldn't drag parts.
 
-Rationale: a code-generated map is diffable, reviewable, and regenerable by an AI worker.
-Hand-placing 400 parts in Studio is not a job you can hand to an agent.
+Config no longer describes geometry. `Config.Zones` keeps **gameplay data only** — unlock
+cost, creature tier, population, and the *names* of marker instances the code looks up:
+
+```lua
+shelf_ice = {
+    displayName = "Shelf Ice",
+    unlockCost = 0,
+    creatureTier = "snow_cub",
+    population = 25,
+    spawnRegion = "SpawnZone",   -- Workspace.World.shelf_ice.SpawnZone
+    sellPads   = { "SellPad" },  -- Workspace.World.shelf_ice.SellPad
+    barrier    = "Barrier",
+    lighting   = { ClockTime = 14, Ambient = ..., FogEnd = 900 },
+}
+```
+
+**The contract between builder and coder is instance names.** Whoever builds a zone creates
+a Part named `SellPad` and a Part named `SpawnZone`; `SellService` and `CreatureService` find
+them by name. Rename one in Studio and the service silently stops working — so renaming a
+marker is a contract change and needs the same RFC as any other.
+
+Agents can still build geometry when it's faster (`execute_luau` to place parts
+procedurally, `generate_mesh` for models, `insert_asset` for marketplace props). Use whichever
+is quicker for the thing at hand: code for repetitive scatter, hands for composition.
+
+**Models** live under `ReplicatedStorage.Assets`, produced by `generate_mesh` /
+`insert_asset` / `upload_image` rather than exported files.
 
 ## 8. Performance budget (enforced in E2)
 

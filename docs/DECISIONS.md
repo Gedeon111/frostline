@@ -22,7 +22,7 @@ game page copy.
 
 ---
 
-### D-002 · 2026-08-13 · ACCEPTED · Rojo source-of-truth, no framework
+### D-002 · 2026-08-13 · **SUPERSEDED by D-009** · Rojo source-of-truth, no framework
 
 **Decision:** The entire game is source files synced by Rojo. No Knit/Fusion/Roact/Wally. A
 two-phase `Init`/`Start` loader replaces the DI framework. Third-party code is vendored as
@@ -56,7 +56,7 @@ Needs a Roblox-search check for collisions before R2 (game page assets). Human d
 
 ---
 
-### D-005 · 2026-08-13 · ACCEPTED · World is generated from config, not hand-placed
+### D-005 · 2026-08-13 · **SUPERSEDED by D-009** · World is generated from config, not hand-placed
 
 **Decision:** `world/WorldGen.luau` builds terrain, barriers, sell pads, spawn markers and
 per-zone lighting at server start from `Config/Zones.luau`. Only hand-modelled props ship as
@@ -140,6 +140,49 @@ thumbnails at 250px. Loud there, quiet in-game. This is a deliberate inconsisten
 documented in `ART_BIBLE` so nobody "fixes" it.
 
 **Blast radius:** ART_BIBLE, board ordering, R2 (now a follow-through on G1).
+
+---
+
+### D-009 · 2026-08-13 · ACCEPTED · Studio-native workflow. Supersedes D-002 and D-005.
+
+**Decision:** Roblox Studio is the source of truth. Team Create for human collaboration,
+the Roblox Studio MCP server for agent work. No Rojo, no file-based sync. Git keeps a
+one-directional snapshot of scripts for history and rollback only — it is a backup, never a
+source (job `P7`).
+
+**Why the reversal:** D-002 rested on one claim — that agents cannot author in Studio, so a
+file-based project was the only way to make the job board assignable. A Studio MCP server is
+now connected, and that claim is false. Verified against the live instance: read the game
+tree, read and create and edit scripts (`multi_edit`), run Luau (`execute_luau`), capture the
+viewport, start and stop playtests, generate meshes and materials, insert and upload assets.
+That is a complete authoring surface. Every argument D-002 made follows from a premise that
+no longer holds.
+
+**What this improves, beyond unblocking Team Create:**
+- **The mesh pipeline risk is gone.** D-006 flagged Higgsfield-GLB → Blender → FBX → Open
+  Cloud as the only genuinely unproven step in the plan. `generate_mesh` and
+  `generate_material` are native to the MCP, and `insert_asset` reaches the marketplace. P3
+  shrinks from a multi-stage conversion pipeline to a direct call, and Blender is no longer
+  a dependency.
+- **Hand-built worlds.** D-005 generated the map from config purely because agents could not
+  drag parts. A human doing level design in Studio produces a better map than a config table
+  ever will. Zone building moves to Studio; `Config/Zones.luau` keeps only the gameplay data
+  (unlock costs, spawn counts, tiers), not geometry.
+- **A tighter agent loop.** Edit a script, run it, screenshot the result, playtest — all in
+  the live datamodel, no build step.
+
+**What is genuinely lost:** version control. Team Create has no diff, no branches, no revert
+beyond coarse place-level history. `P7` recovers most of it by snapshotting scripts out of
+Studio into git on a schedule.
+
+**New risk this introduces:** Team Create's script locking protects humans from each other.
+It does **not** protect against two agents editing the same script, because MCP edits go
+straight into the datamodel — no merge, no warning, last write wins. The track ownership
+split in `WORKFLOW.md` is now the only thing preventing that collision, which raises its
+importance considerably.
+
+**Blast radius:** ARCHITECTURE §1/§2/§7, AUTOMATION channel 1, WORKFLOW §2/§5/§8, F1–F4,
+P1/P3/P6, new P7, C2/C3, D-006's open risk (now closed).
 
 ---
 

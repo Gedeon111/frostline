@@ -340,33 +340,35 @@ Every packet assumes you have read `docs/WORKFLOW.md` and `docs/ARCHITECTURE.md`
 
 ---
 
-### [C2] WorldGen — Zone 1
+### [C2] Build Zone 1 — Shelf Ice
 
-**Owner:** World · **Depends on:** F2
+**Owner:** World (you or your collaborator, in Studio) · **Depends on:** F2 · **Channel:** 1
 
-**Read first:** `docs/DECISIONS.md` D-005, `Config/Zones.luau`, `docs/ART_BIBLE.md` §1, §3
+**Read first:** `docs/DECISIONS.md` D-009, `docs/ARCHITECTURE.md` §7,
+`Config.Zones`, `docs/ART_BIBLE.md` §1, §3
 
-**You own:** `src/world/WorldGen.luau`, `src/world/ZoneBuilder.luau`
+**You own:** `Workspace.World.shelf_ice`
 
-**Build:**
-- Generate Shelf Ice from config: a flat terrain plate, scattered ice blocks at ≤ 8 props per
-  100×100 studs (ART_BIBLE §1 — resist the urge to decorate), a spawn area marker, and the
-  outpost.
-- Outpost: 3–4 simple structures, a sell pad (a visibly distinct 20×20 platform), a trader
-  placeholder block, and the shop trigger location. Placed so a player spawning at the
-  outpost sees cubs within 15 seconds of walking.
-- Apply zone lighting from config. Build the barrier wall toward Zone 2 (locked, opaque ice).
-- Everything parented under `workspace.World.<zoneId>`, anchored, `CanCollide` correct,
-  `CastShadow = false` on decorative parts.
-- Deterministic: same config → same world, seeded RNG. A regenerated world must not move the
-  outpost.
+**Build** — by hand in Studio, with an agent placing repetitive scatter via `execute_luau`
+where that's faster:
+- A flat plate with scattered ice blocks at **≤ 8 props per 100×100 studs**. ART_BIBLE §1 —
+  the emptiness is the style; resist decorating.
+- The outpost: 3–4 simple structures, a visibly distinct 20×20 sell platform, a trader
+  placeholder, and the shop trigger. Placed so a player spawning at the outpost sees cubs
+  within ~15 seconds of walking.
+- Apply the zone's lighting block from config.
+- A locked ice barrier toward Zone 2.
+
+**The instance names are the contract** (ARCHITECTURE §7). This zone must contain parts named
+exactly `SpawnZone`, `SellPad`, and `Barrier` — `CreatureService` and `SellService` find them
+by name. Renaming one is a contract change, not a tidy-up.
 
 **Done when:**
-- [ ] Zone 1 builds in < 2s at server start
-- [ ] Part count for the zone ≤ 2,000
-- [ ] Sell pad regions match the coordinates `SellService` reads from config
-- [ ] Walking from the far edge of the zone to the sell pad takes ≤ 20s at WalkSpeed 16
-- [ ] Deleting the whole world and re-running `WorldGen` produces an identical result
+- [ ] Part count ≤ 2,000, everything anchored, `CastShadow = false` on decorative parts
+- [ ] `SpawnZone`, `SellPad`, `Barrier` exist at the exact names, verified by `search_game_tree`
+- [ ] Walking from the far edge to the sell pad takes ≤ 20s at WalkSpeed 16 — measure it
+- [ ] A `screen_capture` from player height is committed to `docs/specs/zone-review.md`
+- [ ] Reads as Antarctic and sparse, not as a Roblox baseplate with boxes on it
 
 **Out of scope:** zones 2–5 (C3), final art models (C5).
 
@@ -380,7 +382,7 @@ Every packet assumes you have read `docs/WORKFLOW.md` and `docs/ARCHITECTURE.md`
 
 **Build:**
 - A minimal spec runner (~80 lines: `describe`/`it`/`expect`) — do not vendor TestEZ, we need
-  it to run under plain Luau as well as `run-in-roblox`.
+  it callable from a single `execute_luau` string in Edit mode.
 - Specs for: `Format`, `TableUtil`, upgrade cost tables vs `docs/ECONOMY.md`, payout math,
   inventory weight/partial-add edge cases, capacity curve, zone unlock ordering.
 - An **invariant suite** asserting `docs/ECONOMY.md` §7 rules 1–4 hold against the actual
@@ -399,7 +401,7 @@ Every packet assumes you have read `docs/WORKFLOW.md` and `docs/ARCHITECTURE.md`
 
 **Owner:** QA · **Depends on:** all of M1, P1 · **Channel:** 1
 
-**Build:** an automated slice run via `run-in-roblox` that drives a simulated player through
+**Build:** an automated slice run under `start_stop_play` that drives a simulated player through
 the entire loop and asserts it: spawn → locate nearest creature → swing until dead → confirm
 drops entered the pack → repeat until full → walk to the sell pad → sell → confirm cash →
 purchase one upgrade of each track → confirm effects applied → save → reload profile →

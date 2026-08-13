@@ -5,27 +5,39 @@ publishing, storefront setup — is done by an agent. There is no manual-work tr
 
 Four channels cover it. Every job packet names which one it uses.
 
-## Channel 1 — Local toolchain (verified present on this machine)
+## Channel 1 — Roblox Studio MCP (primary; verified connected)
 
-```
-Studio    C:\Users\eebi9\AppData\Local\Roblox\Versions\version-*\RobloxStudioBeta.exe
-plugins   C:\Users\eebi9\AppData\Local\Roblox\Plugins\
-rojo      C:\Users\eebi9\.aftman\bin\rojo.exe
-rokit     C:\Users\eebi9\.rokit\bin\rokit.exe
-git, node, python  on PATH
-```
+The main authoring surface. Studio runs live; the MCP server bridges agents into it.
 
-**What it does:** source → place file (`rojo build`), live sync (`rojo serve`), and — once
-`run-in-roblox` is installed via rokit — **headless Studio execution**: launch Studio with a
-place and a Luau script, run it inside the real engine, capture output, exit. That is a full
-integration-test loop with no human in it.
+Verified working against place **"hunt for money"** (PlaceId `83234958310651`):
 
-**Studio plugins are just `.lua` files in a folder.** An agent writes one, drops it in the
-plugins directory, and Studio runs it on next launch. Bulk in-Studio operations (mesh import,
-prop placement, asset auditing, place-wide fixups) are scriptable this way.
+| Tool | Use |
+|---|---|
+| `list_roblox_studios` | **call first** — every other call needs a `studio_id` |
+| `get_studio_state` | current mode (Edit / Client / Server) before acting |
+| `search_game_tree` · `inspect_instance` | explore the datamodel |
+| `script_read` · `script_grep` · `script_search` | read existing code |
+| `multi_edit` | **create and edit scripts** — atomic, multi-edit, creates by className |
+| `execute_luau` | run code in Edit / Client / Server; use for tests and bulk operations |
+| `start_stop_play` · `get_console_output` | playtest and read errors |
+| `screen_capture` | see the viewport, with optional camera placement |
+| `generate_mesh` · `generate_material` · `generate_procedural_model` | **native asset generation** |
+| `search_asset` · `insert_asset` | pull from the marketplace |
+| `upload_image` · `store_image` | image assets |
+| `run_as_job` · `subagent` | long-running work |
+| `character_navigation` · `user_mouse_input` · `user_keyboard_input` | drive a playtest |
 
-**Not installed yet, install in P1:** `run-in-roblox`, `lune`, and Blender (headless CLI, for
-format conversion — see P3).
+**Rules of use:**
+- Always `list_roblox_studios` first. Several instances are commonly open; confirm the target
+  is the right place before modifying anything.
+- Check `get_studio_state` before a call that needs Client or Server — those datamodels only
+  exist during play.
+- Two agents must never edit the same script. MCP edits go straight into the datamodel:
+  **no merge, no conflict warning, last write wins.** Track ownership in `WORKFLOW.md` §2 is
+  the only thing preventing this.
+
+**Still local, still useful:** `git` for the P7 snapshot, `node`/`python` for Open Cloud
+scripting. Rojo, rokit, run-in-roblox, and Blender are **no longer needed** — see D-009.
 
 ## Channel 2 — Roblox Open Cloud API (needs one API key)
 
@@ -70,7 +82,7 @@ JS dialog, stop and ask after 2–3 failed attempts rather than looping.
 | Need | Tool |
 |---|---|
 | Creature/prop concept art, UI icons, game icon | `generate_image` / `generate_image_batch` |
-| **Image → 3D mesh (GLB)** | `generate_3d` |
+| Image → 3D mesh (GLB) | `generate_3d` — **avoid**; use Channel 1's `generate_mesh` for anything in-game |
 | SFX, ambient music | `generate_audio` / `generate_audio_batch` |
 | Thumbnail compositing, marketing layouts | Canva `generate-design` / `edit-design` |
 | Background removal, upscaling, reframing | `remove_background`, `upscale_image`, `reframe` |
@@ -78,32 +90,39 @@ JS dialog, stop and ask after 2–3 failed attempts rather than looping.
 Batch tools + `jobs_wait` exist — fire all 5 creature tiers at once, collect in one call.
 Do not generate serially.
 
-**The one real unknown:** `generate_3d` returns GLB. Roblox's 3D importer is FBX/OBJ-first.
-P3 resolves this by installing Blender and converting headlessly
-(`blender --background --python convert.py`) — a 15-line script, done once, reused for every
-mesh. Confirm the pipeline end-to-end on one test mesh before generating all five tiers.
+**Prefer Channel 1's `generate_mesh` for anything going into the game.** It lands directly in
+the datamodel with no conversion and no upload step. Higgsfield is for what Studio can't
+make: the game icon, store thumbnails, marketing art, and concept references to art-direct
+from. The GLB→FBX conversion risk that D-006 flagged is closed — see D-009.
 
 ## The pipeline, end to end
 
 ```
-  Higgsfield ──▶ .glb ──▶ Blender CLI ──▶ .fbx ──▶ Open Cloud Assets API ──▶ asset ID
-      (C4)                    (P3)                        (P2)                  │
-                                                                                ▼
-  src/ ──▶ rojo build ──▶ .rbxl ──▶ run-in-roblox (tests) ──▶ Open Cloud publish
-   (all code jobs)         (P1)          (P4)                      (P6)
-                                                                    │
-  Chrome MCP ──▶ gamepasses, product IDs, game page ─────────────────┘
-      (P5)
+  generate_mesh / insert_asset ──▶ ReplicatedStorage.Assets ──▶ used by services
+        (C4, C5, G6 — Channel 1, no conversion, no upload)
+
+  multi_edit ──▶ scripts in the datamodel ──▶ execute_luau tests ──▶ start_stop_play
+   (all code jobs)                              (P4)                     (V1)
+        │
+        └──▶ P7 snapshot ──▶ git  (history + rollback only, never flows back)
+
+  Higgsfield / Canva ──▶ icon + thumbnails ──▶ Chrome MCP ──▶ game page
+        (G1, R2 — Channel 4)                      (P5)
+
+  Chrome MCP ──▶ gamepasses, product IDs, place settings ──▶ Config.Products
+        (P5 — Channel 3)
 ```
 
 ## What still needs you
 
-Two things, both one-time, both ~5 minutes:
+Three things, all small:
 
 1. **Being logged into Roblox in Chrome** so Channel 3 has a session. If a 2FA code appears,
    type it.
 2. **A judgement call on feel.** An agent can verify the game is correct, runs at 60 FPS, and
-   has no exploits. It cannot tell you whether a 0.6s swing feels good. Play it for ten
-   minutes after M1 and answer the five questions in `tasks/M1-vertical-slice.md` → `[V1]`.
+   has no exploits. It cannot tell you whether a 0.6s swing feels good. Ten minutes after M1 —
+   job `V2`.
+3. **Level design taste.** Agents can place parts, but composing a zone that reads well is
+   yours and your collaborator's. That's the part Team Create is actually for.
 
 Everything else is a job on the board.

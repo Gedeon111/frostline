@@ -33,20 +33,23 @@ Before declaring a job blocked, read `docs/AUTOMATION.md`. Studio runs headlessl
 upload over HTTP, the creator dashboard is a website, and meshes and audio are generated.
 Almost nothing here actually needs hands.
 
-## Build
+## How this is built
 
-```bash
-rokit install              # rojo, selene, stylua, run-in-roblox, lune
-rojo serve                 # live-sync into an open Studio place
-rojo build -o Hunt.rbxlx   # produce a place file
-./scripts/itest.ps1        # run the suite inside real Studio, headless
-./scripts/ship.ps1 --dry-run   # full pipeline, stops short of publishing
-```
+**Roblox Studio is the source of truth** (D-009). No Rojo, no build step.
+
+| | |
+|---|---|
+| Humans | Team Create, live in place **"hunt for money"** (`83234958310651`) |
+| Agents | Roblox Studio MCP — `multi_edit`, `execute_luau`, `generate_mesh`, `screen_capture` |
+| This repo | docs and the job board, plus a one-way script snapshot for history (job `P7`) |
+
+Nothing in `src/` ever syncs back into Studio. Git is a backup, not a source.
 
 ## Status
 
-Planning complete, no code written yet. **67 jobs** across five tracks.
+Planning complete, nothing built yet. **68 jobs** across five tracks.
 
-Day one, in parallel: **`G1`** (store-page creative — gates revenue, depends on nothing),
-**`F1`** (repo scaffold — gates every code job), **`P2`** (Open Cloud — gates every asset).
+Day one, in parallel: **`F1`** (datamodel scaffold — gates every code job), **`P7`** (git
+snapshot — set it up before there's anything to lose), **`G1`** (store-page creative — gates
+revenue, depends on nothing).
 

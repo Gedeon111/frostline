@@ -66,8 +66,8 @@ eyeballing the dashboard:
   and description read as fictional.
 - Chat/filter check: every dynamic string shown to a player (names on leaderboards, codes
   feedback) passes through `TextService:FilterStringAsync`
-- Publish via `scripts/ship.ps1` (P6), then confirm the new place version through the Open
-  Cloud version list — don't trust the dashboard's word for it
+- Clear the P6 release checklist, publish from Studio (File → Publish), then confirm the new
+  place version through the Open Cloud version list — don't trust the dashboard's word for it
 
 **Flipping the game public is outward-facing and effectively irreversible.** Do everything up
 to that point, then confirm before making the place public.

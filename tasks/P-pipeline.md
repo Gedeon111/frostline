@@ -7,33 +7,31 @@ Read `docs/AUTOMATION.md` before any packet here.
 
 ---
 
-### [P1] Toolchain + headless Studio harness
+### [P1] Test harness inside Studio
 
 **Owner:** Architect · **Depends on:** F1 · **Channel:** 1
 
-**You own:** `rokit.toml` (extension), `scripts/studio.ps1`, `scripts/itest.ps1`,
-`tools/plugin/HuntDevPlugin.lua`
+**You own:** `ServerStorage.Tests.*`
 
 **Build:**
-- Add `run-in-roblox` and `lune` to `rokit.toml`, `rokit install`, verify both resolve.
-- `scripts/itest.ps1` — build the place with rojo, run a Luau script inside real Studio via
-  `run-in-roblox`, capture stdout, exit non-zero on failure. This is the integration-test loop
-  that `E1`'s unit tests can't cover (DataStores, workspace, Players).
-- Write one smoke test proving the harness works: boot the server bootstrap, assert every
-  service `Init`s, print `OK`, exit.
-- `tools/plugin/HuntDevPlugin.lua` — a Studio plugin installed by copying into
-  `%LOCALAPPDATA%\Roblox\Plugins\`. Toolbar buttons for: regenerate world, dump workspace
-  part counts, list unassigned asset IDs, clear test DataStore keys. Agents use this for bulk
-  in-Studio operations they'd otherwise be unable to perform.
-- `scripts/studio.ps1` — launch Studio on the built place for a visual check.
+- A small spec runner as a ModuleScript (`describe` / `it` / `expect`, ~80 lines). Don't
+  vendor TestEZ — this needs to be callable from a single `execute_luau` string.
+- `ServerStorage.Tests.RunAll` — requires every sibling spec, runs it, returns a formatted
+  pass/fail summary as a string so the result comes straight back through `execute_luau`.
+- One smoke spec proving the harness works: boot the server bootstrap, assert every service
+  `Init`s, return `OK`.
+- Document the one-liner other jobs use to run tests, in the handoff notes.
 
 **Done when:**
-- [ ] `./scripts/itest.ps1` runs end to end from a clean clone and exits 0
-- [ ] A deliberately failing assertion makes it exit non-zero (verify, don't assume)
-- [ ] The plugin loads in Studio and every button works
-- [ ] Total harness runtime < 90s
+- [ ] `execute_luau` returning `require(...Tests.RunAll)()` prints a readable summary
+- [ ] A deliberately failing assertion shows up as a failure (verify, don't assume)
+- [ ] Specs run in `Edit` mode where possible so no playtest is needed for pure logic
+- [ ] Full run under 10s
 
-**Out of scope:** CI, publishing (P6).
+**Out of scope:** integration tests needing a live server (P4), publishing (P6).
+
+**Note:** this job used to install `run-in-roblox` and write a Studio plugin. D-009 removed
+both — `execute_luau` does what the plugin was for, directly.
 
 ---
 
@@ -68,50 +66,56 @@ Read `docs/AUTOMATION.md` before any packet here.
 
 ---
 
-### [P3] Generative asset pipeline (image → mesh → Roblox)
+### [P3] Asset generation conventions
 
-**Owner:** World · **Depends on:** P2 · **Channel:** 4 → 1 → 2
+**Owner:** World · **Depends on:** F1 · **Channel:** 1
 
-**You own:** `tools/assetgen/*`, `scripts/convert.py`
+**You own:** `ReplicatedStorage.Assets` structure + `docs/specs/asset-pipeline.md`
 
 **Build:**
-- Install Blender (headless is fine) and write `scripts/convert.py` — a Blender Python script
-  run as `blender --background --python convert.py -- in.glb out.fbx` that imports GLB,
-  applies scale, sets the origin to the model's base, decimates to the tri budget from
-  `docs/ART_BIBLE.md` §4, and exports FBX.
-- `tools/assetgen/pipeline.mjs` — one command per asset: Higgsfield `generate_image` (concept,
-  from the ART_BIBLE prompt) → `generate_3d` (GLB) → Blender convert (FBX) → P2 upload →
-  asset ID → config. Batch mode for the 5 creature tiers at once.
-- **Prove it on one asset before generating anything else.** The GLB→FBX→Roblox path is the
-  only genuinely unverified step in this whole plan.
-- If Roblox's importer accepts GLB directly, delete the Blender step and say so.
+- Establish and document how assets get made, now that `generate_mesh`,
+  `generate_material`, `generate_procedural_model`, `search_asset` and `insert_asset` are
+  native. Decide per asset class which to use — generated mesh, marketplace insert, or plain
+  part assembly — and write it down so C4/C5/G6 don't each re-decide.
+- Prove the loop once end to end: generate one creature mesh from the ART_BIBLE §4 prompt,
+  place it under `ReplicatedStorage.Assets.Creatures`, assemble it into a Model with a
+  PrimaryPart and emissive eye parts, `screen_capture` it from 100 studs, confirm it reads
+  as a bear in silhouette.
+- Write the naming convention and the part/tri budget check as an `execute_luau` snippet
+  other jobs can reuse.
 
 **Done when:**
-- [ ] One creature mesh goes prompt → in-game, verified via a `run-in-roblox` script that
-      loads it and asserts part count and bounding box
-- [ ] Tri/part budgets from ART_BIBLE §4 are enforced by the pipeline, not by hope
-- [ ] Batch mode produces all 5 tiers in one run
-- [ ] The pipeline is idempotent — re-running doesn't duplicate assets
+- [ ] One creature mesh exists in `Assets.Creatures` and passes the 100-stud silhouette check
+- [ ] The budget-check snippet reports part and tri counts for any model path
+- [ ] `docs/specs/asset-pipeline.md` states which tool to use for which asset class, and why
+- [ ] Re-running does not duplicate assets
+
+**Note:** this job was Higgsfield-GLB → Blender → FBX → Open Cloud upload, and D-006 flagged
+it as the biggest unproven risk in the plan. D-009 closed that: mesh generation is native to
+the Studio MCP, so there is no conversion and no upload. Blender is no longer a dependency.
+Higgsfield is now only for the icon and store thumbnails (G1, R2).
 
 ---
 
-### [P4] Integration test suite in real Studio
+### [P4] Integration tests during play
 
 **Owner:** QA · **Depends on:** P1, and each service as it lands · **Channel:** 1
 
-**You own:** `tests/integration/*.luau`
+**You own:** `ServerStorage.Tests.Integration.*`
 
-**Build:** the tests `E1` structurally cannot do, run inside real Studio via P1's harness:
-profile save/load round-trip against a test DataStore, two simulated players with independent
-state, creature spawn/kill/respawn over 60 simulated seconds, sell-pad region detection,
-purchase → effect application, zone barrier enforcement, and a memory check over a compressed
-session.
+**Build:** the tests `E1` structurally cannot do — they need a running server, so they run
+under `start_stop_play` with `execute_luau` against the `Server` datamodel: profile save/load
+round-trip on a test DataStore, two simulated players with independent state, creature
+spawn/kill/respawn over 60 seconds, sell-pad region detection, purchase → effect application,
+zone barrier enforcement, memory over a compressed session.
+
+Read failures back with `get_console_output`.
 
 **Done when:**
 - [ ] Each M1 service has at least one integration test
-- [ ] The suite runs from one command and reports pass/fail per case
+- [ ] The suite runs from one `execute_luau` call and reports pass/fail per case
 - [ ] Test DataStore keys are namespaced and cleaned up after each run
-- [ ] It catches a deliberately introduced regression (prove it in the PR)
+- [ ] It catches a deliberately introduced regression (prove it, don't assert it)
 
 ---
 
@@ -134,7 +138,7 @@ session.
 
 **Done when:**
 - [ ] Every gamepass and product exists with a real ID in config, verified by a live
-      `UserOwnsGamePassAsync` check from `run-in-roblox`
+      `UserOwnsGamePassAsync` check via `execute_luau` during play
 - [ ] API access is confirmed enabled by an actual DataStore write from Studio
 - [ ] Screenshots of the finished game page are attached to the PR
 - [ ] Each runbook is specific enough to re-execute without re-deriving the UI
@@ -145,23 +149,56 @@ undo.
 
 ---
 
-### [P6] Build → test → publish pipeline
+### [P6] Release checklist
 
-**Owner:** Architect · **Depends on:** P1, P2, P5 · **Channel:** 1 + 2
+**Owner:** Architect · **Depends on:** P1, P4, P5, P7 · **Channel:** 1 + 2
 
-**You own:** `scripts/ship.ps1`, `.github/workflows/ci.yml`
+**You own:** `docs/release-checklist.md`
 
-**Build:**
-- `scripts/ship.ps1`: lint → format check → unit tests (E1) → `rojo build` → integration
-  tests (P4) → upload any changed assets (P2) → sync IDs → rebuild → publish the `.rbxl` via
-  Open Cloud → print the place version and URL. Any failure aborts before publish.
-- A `--dry-run` flag that does everything except the publish call. Default to dry-run;
-  publishing requires an explicit flag.
-- CI workflow running lint + unit tests on every PR. Integration tests and publish stay
-  local — they need Studio and a real key.
+**Build:** publishing is now Studio's own **File → Publish**, so this is a gate, not a script.
+Write the ordered checklist and the `execute_luau` snippet that verifies each item:
+
+1. `P7` snapshot committed and pushed — never publish un-snapshotted code
+2. Unit suite green (`Tests.RunAll`)
+3. Integration suite green under play (P4)
+4. No `print`/`warn` outside the `Log` util with `Debug` off
+5. Every asset ID in Config resolves (no zeros)
+6. Place settings confirmed via Open Cloud (P5): API access on, streaming on, max players
+7. Then publish, and confirm the new version through the Open Cloud version list rather than
+   the dashboard's word for it
 
 **Done when:**
-- [ ] `./scripts/ship.ps1 --dry-run` passes from a clean clone
-- [ ] A failing unit test blocks the publish step (prove it)
-- [ ] A real publish produces a new place version, confirmed by fetching the version list
-- [ ] Publishing is never the default action of any script
+- [ ] The checklist runs top to bottom and each item has an objective check
+- [ ] A deliberately broken item (a zeroed asset ID) is caught by the verification snippet
+- [ ] Publishing is never something an agent does on its own initiative — it's a gate you
+      clear and the human triggers
+
+---
+
+### [P7] Git snapshot — history and rollback
+
+**Owner:** Architect · **Depends on:** F1 · **Channel:** 1 + local git
+
+**You own:** `tools/snapshot/` + the mirrored `src/` tree in git
+
+**Build:** the safety net Team Create doesn't give you (D-009).
+
+- Walk the datamodel with `search_game_tree` for `LuaSourceContainer`, `script_read` each
+  one, and write it to a mirrored path under `src/` (e.g.
+  `ServerScriptService.Services.SellService` → `src/ServerScriptService/Services/SellService.luau`).
+- Commit with a message naming what changed since the last snapshot.
+- **One direction only.** Nothing ever reads from `src/` back into Studio. If someone wants
+  to restore an old version, they read the file and paste it in deliberately — there is no
+  automatic sync, because an automatic sync is exactly what would fight Team Create.
+- Include a `--check` mode that reports drift without committing, so it can run as a
+  pre-publish gate in P6.
+
+**Done when:**
+- [ ] A full snapshot produces a `src/` tree matching the datamodel, committed and pushed
+- [ ] Running it twice with no changes produces no commit
+- [ ] Editing one script in Studio and re-running produces a one-file diff
+- [ ] `git log -p` on a script shows readable Luau history
+- [ ] The one-direction rule is stated at the top of the tool and in the README
+
+**Run it at the end of every working session.** A snapshot you didn't take is history you
+don't have.

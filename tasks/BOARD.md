@@ -39,12 +39,13 @@ The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MON
 
 | ID | Job | Owner | Ch | Depends | Status |
 |---|---|---|---|---|---|
-| P1 | Toolchain + headless Studio harness (`run-in-roblox`, dev plugin) | Architect | 1 | F1 | TODO |
-| P2 | Open Cloud client: API key, asset upload, ID sync into config | Architect | 2,3 | F1 | TODO |
-| P3 | Generative asset pipeline: image → GLB → FBX → upload | World | 4,1,2 | P2 | TODO |
-| P4 | Integration test suite inside real Studio | QA | 1 | P1 | TODO |
-| P5 | Storefront: universe, gamepasses, products, place settings, badges | Architect | 3 | P2 | TODO |
-| P6 | `ship.ps1` — build → test → upload → publish, plus CI | Architect | 1,2 | P1,P2,P5 | TODO |
+| P1 | Test harness inside Studio (`Tests.RunAll` via `execute_luau`) | Architect | 1 | F1 | TODO |
+| P2 | Open Cloud client: API key, place/DataStore access | Architect | 2,3 | F1 | TODO |
+| P3 | Asset generation conventions (`generate_mesh` / `insert_asset`) | World | 1 | F1 | TODO |
+| P4 | Integration tests during play | QA | 1 | P1 | TODO |
+| P5 | Storefront: gamepasses, products, place settings, badges | Architect | 3 | P2 | TODO |
+| P6 | Release checklist (publish is Studio's File → Publish) | Architect | 1,2 | P1,P4,P5,P7 | TODO |
+| P7 | **Git snapshot** — scripts out of Studio into history | Architect | 1 | F1 | TODO |
 
 ---
 
@@ -52,7 +53,7 @@ The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MON
 
 | ID | Job | Owner | Depends | Status |
 |---|---|---|---|---|
-| F1 | Repo scaffold, rokit toolchain, Rojo project, lint/format config | Architect | — | TODO |
+| F1 | Datamodel scaffold — folder tree in the place, survey what exists | Architect | — | TODO |
 | F2 | Shared contracts: Types, Remotes, Config tables from ECONOMY.md | Architect | F1 | TODO |
 | F3 | Core utils: Signal, Trove, RateLimiter, Format, TableUtil | Architect | F1 | TODO |
 | F4 | Two-phase loader + Net wrappers (server & client) | Architect | F2, F3 | TODO |
@@ -74,8 +75,8 @@ Target: a player can join, kill cubs, fill a pack, sell, buy 3 upgrades, rejoin 
 | B2 | `HarvestController` — prompt binding, hold-to-swing, target tracking | Client | B1, A5 | TODO |
 | B3 | `HudController` — cash, pack bar, zone label, sell arrow | Client | B1, C1 | TODO |
 | B4 | `EffectsController` — hit flash, particles, floating numbers, hitstop | Client | B1, C1 | TODO |
-| C1 | UI kit — `Ui.luau` builder, palette tokens, base components | Client | F1 | TODO |
-| C2 | `WorldGen` — Zone 1 blockout, outpost, sell pad, spawn markers | World | F2 | TODO |
+| C1 | UI kit — `Ui` builder, palette tokens, base components | Client | F1 | TODO |
+| C2 | Build Zone 1 in Studio — outpost, sell pad, spawn markers | World | F2 | TODO |
 | E1 | Test harness + economy/validation unit tests | QA | F2, F3 | TODO |
 | V1 | Automated slice verification — full loop driven in real Studio | QA | all M1, P1 | TODO |
 | V2 | **You:** 10-minute feel check, five written answers | You | V1 | TODO |
@@ -92,8 +93,8 @@ Target: a player can join, kill cubs, fill a pack, sell, buy 3 upgrades, rejoin 
 | B6 | `ZoneController` — barrier prompts, unlock confirm, teleport menu | Client | B1, A8 | TODO |
 | B7 | `SoundController` — SFX bus, per-zone ambience, music ducking | Client | B1, C6 | TODO |
 | B8 | `CameraController` + movement feel, snow footsteps | Client | B1 | TODO |
-| C3 | `WorldGen` zones 2–5 + per-zone lighting transitions | World | C2 | TODO |
-| C4 | Creature models: generate → convert → upload → assemble → animate | World | P3 | TODO |
+| C3 | Build zones 2–5 in Studio + per-zone lighting transitions | World | C2 | TODO |
+| C4 | Creature models via `generate_mesh` + assemble + animate | World | P3 | TODO |
 | C5 | Outpost props, trader model, harpoon models | World | P3 | TODO |
 | C6 | Audio generation + upload (Roblox library fallback) | Client | P2 | TODO |
 | C7 | Art integration audit — in-engine screenshots, asset/part budgets | World | C3–C6 | TODO |
@@ -129,36 +130,37 @@ Target: a player can join, kill cubs, fill a pack, sell, buy 3 upgrades, rejoin 
 
 ```
 code      F1 → F2 → F4 → A1 → A3 → A5/A6/A7 → V1 → C3 → A8 → B5 → A12 → E3 → R1 → R3
-assets         P2 → P3 → C4 ────────────────────────┘
-growth    G1 ──────────────  G2 → G3 → G4 → G5 → G12 ──┘
-harness        P1 → P4                                      P5 → P6 ──────────────┘
+world     F1 → C2 ──────────────────────────────┘
+growth    G1 ─────────  G2 → G3 → G4 → G5 → G12 ────────────────┘
+harness   F1 → P1 → P4 · P7                              P5 → P6 ──────────────┘
 ```
 
 Four lanes, run them together. Serialization risks, in order:
 
-1. **F2** — the contract freeze. One worker, done properly. Six workers code against it.
-2. **P3** — the mesh pipeline is the only genuinely unproven step in this plan. Prove it on
-   one asset early, not during M2.
-3. **G3/G4** — companions feed the multiplier stack that `SellService` already calls. Land
-   them before G12 or the store has nothing to display.
-4. **V1** — nothing in M2 starts before the slice is confirmed to actually work.
+1. **F2** — the contract freeze. One worker, done properly. Everything codes against it.
+2. **G3/G4** — companions feed the multiplier stack `SellService` already calls. Land them
+   before G12 or the store has nothing to display.
+3. **V1** — nothing in M2 starts before the slice is confirmed to actually work.
+4. **Two agents on one script** — no longer a schedule risk but a data-loss risk. See
+   `WORKFLOW.md` §2.
 
-**G1 has no dependencies and gates the most revenue. Start it today.**
+The old #2 risk — the GLB→FBX→Roblox mesh pipeline — is **gone**, closed by D-009.
 
-## Rough sizing — 67 jobs
+## Rough sizing — 68 jobs
 
 | Track | Jobs | Est. | Bottleneck |
 |---|---|---|---|
-| G | 13 | ~5 days | G6's 40 companion models; G1 blocks nothing but delays everything |
-| P | 6 | ~2 days | API key + the GLB→FBX→Roblox hop |
+| G | 13 | ~5 days | G6's 40 companion models |
+| P | 7 | ~1 day | mostly shrank under D-009; P5 needs a live account |
 | M0 | 4 | ~1 day | F2 quality, not speed |
-| M1 | 16 | ~4 days | — |
-| M2 | 14 | ~5 days | C4's five sequential pipeline stages |
+| M1 | 16 | ~4 days | C2 is hand-built now — level design taste, not code |
+| M2 | 14 | ~4 days | C3's four zones, built by hand |
 | M3 | 10 | ~4 days | live-account operations in P5 |
-| M4 | 4 | ~1 day | moderation turnaround on uploads |
+| M4 | 4 | ~1 day | moderation turnaround |
 
-**Day one, in parallel: `G1` (store page), `F1` (scaffold), `P2` (Open Cloud).** G1 gates
-revenue, P2 gates every asset, F1 gates every code job.
+**Day one, in parallel: `F1` (scaffold), `P7` (snapshot — set it up before there's anything
+to lose), `G1` (store page).** F1 gates every code job, P7 is your only safety net under Team
+Create, G1 gates revenue and depends on nothing.
 
 ## The three numbers this all exists to move
 
