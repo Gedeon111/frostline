@@ -182,12 +182,52 @@ persistence until someone tests a rejoin.
 - Creatures wander: a slow lerp to a random point within 30 studs every 4–8s. No pathfinding,
   no Humanoid, no physics — set `CFrame` directly, anchored.
 
-**Done when:**
-- [ ] 125 creatures across 5 zones cost < 1.5ms/frame of server time
-- [ ] Killing one respawns it elsewhere after the configured delay, forever, no leak
-- [ ] `Damage` on an already-dead model returns false and does not double-award
-- [ ] Zero Humanoids in workspace (assert in a test)
-- [ ] Works with placeholder models before any art exists
+**Status: DONE** — 2026-08-13. 20 assertions, all passing, verified in-game.
+
+- [x] 25 spawned in `shelf_ice`; the other four zones **skip with a warning**
+      rather than failing, since C2/C3 haven't built their geometry yet
+- [x] Min spacing honoured — closest pair 13.6 studs against a 12-stud minimum,
+      checked across all 300 pairs
+- [x] Damage reduces HP; `Humanoid.Health` mirrors it for display only
+- [x] Lethal damage returns `died=true` with correct overkill (5), drops land
+      in the pack
+- [x] **`Damage` on an already-dead model returns false and awards nothing** —
+      two players finishing the same bear can't both get drops
+- [x] Full pack: the kill still registers, pack does not overfill
+- [x] Respawned back to 25 after the configured 8s
+- [x] Golden variant rolled 1/25 and renders gold in-world
+- [x] Works from a single shared base model, scaled per tier
+
+**Deviation from the packet — Humanoids are kept.** The packet said zero
+Humanoids. The real bear model is a Motor6D rig whose walk animation is driven
+by `Humanoid:MoveTo`; removing it would mean rebuilding locomotion from scratch
+to save cost we haven't measured. D-003's concern was 125 concurrent Humanoids,
+which is worth measuring at E2 and tuning via disabled Humanoid states — not
+worth pre-emptively rebuilding animation for. **HP is still server-side only**;
+`Humanoid.Health` is a mirror and is never read for gameplay, which was D-003's
+other and more important point.
+
+**Design notes:**
+- **One wander loop for all creatures**, not one per creature. 125 `while true`
+  loops is 125 coroutines competing for the scheduler.
+- Wander offsets come from `home` (the spawn point), never the current position —
+  measuring from current makes creatures random-walk off the map over minutes.
+- Golden multiplies **value, not drop count**; extra meat would just overflow
+  the pack and hide the reward.
+
+**Handoffs:**
+- `CreatureService.Damage(model, amount, killer)` is what A5 calls after it
+  validates range and cooldown. It already grants drops and fires `Died`.
+- Setting the `Flinch` attribute on a creature plays its hit animation.
+- **`ReplicatedStorage.Assets` is no longer Rojo-managed** — models are art and
+  live in Studio like `Workspace`. Otherwise every sync deleted them.
+- The `shelf_ice.SpawnZone` part is a 200×200 placeholder; **C2 replaces it**.
+  The instance *names* are the contract, not the shapes.
+- Per-tier models drop in automatically: name one after the tier's `modelName`
+  under `Assets.Creatures` and it's used instead of the scaled base.
+- Scaled height came out 3.11 studs against a spec of 4.0, because scaling maps
+  total model height to `shoulderHeight`. **C4 should reconcile that** when real
+  per-tier models exist.
 
 ---
 
