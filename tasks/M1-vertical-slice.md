@@ -119,13 +119,41 @@ persistence until someone tests a rejoin.
 - `Clear(player) -> contents` — returns what was cleared, for SellService
 - `IsFull(player) -> boolean`
 
-**Done when:**
-- [ ] Unit tests cover: exact-fill, overfill-by-one, empty pack, capacity change while loaded
-- [ ] Cash cannot go negative through any code path
-- [ ] Grep proves `data.cash` is written in exactly two places, both in `CurrencyService`
-- [ ] Capacity increasing mid-session immediately allows more pickup, no rejoin needed
+**Status: DONE** — 2026-08-13. **30 assertions, all passing**, run in-game.
 
-**Out of scope:** payout math (A6), upgrade purchase (A7).
+- [x] exact-fill (10 × weight-2 into capacity 20), overfill-by-one (adds 0),
+      empty pack, and capacity change while loaded (lv1→lv2 gave 12 free
+      immediately, accepted 6 more with no rejoin)
+- [x] Cash cannot go negative: spend-1-over refused with cash **unchanged**,
+      spend-exactly-all leaves 0, spend-at-zero refused
+- [x] Bogus input rejected: award of 0, award of -50, NaN guarded
+- [x] `data.cash` written in exactly **two** places, both in `CurrencyService`
+      (verified by grep; other hits are comments). `data.pack` likewise, both
+      in `InventoryService`
+- [x] `Clear` twice in a row returns empty the second time — **cannot double-pay**
+- [x] `GetContents` hands out a copy; mutating it doesn't touch the real pack
+- [x] Unknown tier id adds 0 and logs, rather than corrupting weight
+
+**Design notes:**
+- **Partial adds are correct, not a compromise.** A pack with 3 free weight takes
+  one 2-weight meat and refuses the rest. Refusing the whole drop would lose the
+  player a kill they earned; accepting it all breaks the capacity rule the loop
+  rests on. A5 depends on this — the kill still counts when the pack is full.
+- **Capacity is derived, never cached**, so an upgrade applies to the very next
+  pickup.
+- Multipliers are **not** applied in `Award` — it takes a final amount.
+  `SellService` assembles them through the single point in MONETIZATION §1.
+
+**Handoffs:**
+- `CurrencyService.Changed(player, newCash, delta, reason)` and
+  `InventoryService.Changed(player, weight, capacity)` — **A2 replicates from
+  these signals** rather than the services knowing StateService exists.
+- `InventoryService.GetValue(contents)` gives the pre-multiplier value; A6 wraps it.
+- Analytics call sites exist and currently log — **A14 replaces one function body**
+  (`emit` in CurrencyService), not every call site.
+- `gamepassBonus()` in InventoryService is a stub returning 0 — **A13 fills it**.
+
+**Out of scope (respected):** payout math (A6), upgrade purchase (A7).
 
 ---
 
