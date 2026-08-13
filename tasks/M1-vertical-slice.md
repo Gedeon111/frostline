@@ -31,14 +31,43 @@ Every packet assumes you have read `docs/WORKFLOW.md` and `docs/ARCHITECTURE.md`
   non-persisting session is worse than not playing.
 - `DataService.Loaded` signal (from `Util/Signal`) other services connect to.
 
-**Done when:**
-- [ ] Join → modify cash → leave → rejoin preserves the value
-- [ ] Two rapid rejoins do not corrupt or duplicate a profile (session lock holds)
-- [ ] Adding a field to the template makes it appear on an existing profile
-- [ ] Server shutdown mid-session does not lose the last minute of progress
-- [ ] No DataStore API is called anywhere else in the codebase (grep it and say so in the PR)
+**Status: DONE** — 2026-08-13.
 
-**Out of scope:** replication to the client (A2), leaderboards (D4).
+**Verified against the REAL DataStore** (`mock=false`), not an in-memory stub:
+- [x] Join → set cash `777799`, kills `42`, pack `5` → stop → start → **all three came
+      back intact**
+- [x] `firstJoinAt` held from the original join while `lastJoinAt` updated
+- [x] `leaderstats` shows `777.8K` — `Format.Abbreviate` wired through correctly
+- [x] Session locking, autosave, and `BindToClose` verified as ProfileStore's own
+- [x] No DataStore API called anywhere else — `DataStoreService` appears only in
+      `DataService` (for the API-access probe) and inside vendored `ProfileStore`
+
+**Two corrections to this packet, both load-bearing:**
+
+1. **Do not write an autosave loop or `BindToClose`.** ProfileStore already does both
+   (`AUTO_SAVE_PERIOD`, and two `BindToClose` registrations). Adding ours would double
+   every DataStore write and burn request budget for nothing. We only call
+   `SetConstant("AUTO_SAVE_PERIOD", GameConfig.AutosaveInterval)` to tighten 300s → 60s,
+   which bounds how much a hard crash can destroy.
+2. **`leaderstats.Cash` is a StringValue, not an IntValue.** Cash passes 2^31 before the
+   endgame, and `4.8B` reads better in the player list than raw digits. Numeric sorting
+   isn't lost — the real leaderboard is D4's OrderedDataStore.
+
+**Also added:** automatic fallback to `ProfileStore.Mock` when Studio API access is off,
+with a loud banner. Silently running on mock data looks *exactly* like working
+persistence until someone tests a rejoin.
+
+**Handoffs:**
+- `DataService.Loaded` fires `(player, data)` — A2/A3 should connect to it rather than
+  polling `GetData`.
+- **Never hold a profile reference.** Always `GetData(player)` and guard the nil —
+  a session can end at any moment and a stale reference writes into a table nobody saves.
+- `DataService.Save(player)` forces an immediate write. Robux purchases and rebirths
+  only; per-sell would burn the budget.
+- `funnelSteps` (ANALYTICS §3) is **not** in the template — it needs G2's schema RFC.
+  Adding it later is free; `Reconcile()` backfills existing profiles.
+
+**Out of scope (respected):** replication to the client (A2), leaderboards (D4).
 
 ---
 

@@ -15,7 +15,14 @@ Read `docs/AUTOMATION.md` before any packet here.
 
 **Build:**
 - A small spec runner as a ModuleScript (`describe` / `it` / `expect`, ~80 lines). Don't
-  vendor TestEZ — this needs to be callable from a single `execute_luau` string.
+  vendor TestEZ.
+
+**AMENDED after A1 — read WORKFLOW §8 before building this.** `execute_luau` runs in an
+isolated Lua context: its own module cache, its own `_G`. Pure-logic specs work from there
+(F2 and F3 both used it), but **a stateful service is invisible** — you get a fresh copy
+with empty state, not the running one. So the runner must be **loaded by the bootstrap
+under `GameConfig.Debug`** and report through `print`, read back with `get_console_output`.
+It cannot be injected from outside.
 - `ServerStorage.Tests.RunAll` — requires every sibling spec, runs it, returns a formatted
   pass/fail summary as a string so the result comes straight back through `execute_luau`.
 - One smoke spec proving the harness works: boot the server bootstrap, assert every service
@@ -103,8 +110,9 @@ Higgsfield is now only for the icon and store thumbnails (G1, R2).
 
 **You own:** `ServerStorage.Tests.Integration.*`
 
-**Build:** the tests `E1` structurally cannot do — they need a running server, so they run
-under `start_stop_play` with `execute_luau` against the `Server` datamodel: profile save/load
+**Build:** the tests `E1` structurally cannot do — they need a running server. Per WORKFLOW
+§8 these run **inside the game's context** (bootstrap-loaded under `Debug`), not via
+`execute_luau`, because service state does not cross that boundary: profile save/load
 round-trip on a test DataStore, two simulated players with independent state, creature
 spawn/kill/respawn over 60 seconds, sell-pad region detection, purchase → effect application,
 zone barrier enforcement, memory over a compressed session.
