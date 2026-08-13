@@ -49,7 +49,7 @@ The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MON
 
 ---
 
-## M0 · Foundation — everything blocks on this (~1 sitting, sequential)
+## M0 · Foundation — **COMPLETE**. Every service job below is now unblocked.
 
 | ID | Job | Owner | Depends | Status |
 |---|---|---|---|---|
