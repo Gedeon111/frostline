@@ -12,7 +12,10 @@
 	Job F4 fills in the real Net wiring. See docs/ARCHITECTURE.md §2.
 ]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+
+local Log = require(ReplicatedStorage:WaitForChild("Shared").Util.Log)
 
 local t0 = os.clock()
 local services: { [string]: any } = {}
@@ -25,7 +28,7 @@ for _, module in ipairs(ServerScriptService.Services:GetChildren()) do
 			services[module.Name] = result
 			table.insert(order, module.Name)
 		else
-			warn(string.format("[boot] require failed: %s — %s", module.Name, tostring(result)))
+			Log.error("boot", "require failed: %s — %s", module.Name, tostring(result))
 		end
 	end
 end
@@ -36,10 +39,10 @@ for _, phase in ipairs({ "Init", "Start" }) do
 		if type(service) == "table" and type(service[phase]) == "function" then
 			local ok, err = pcall(service[phase])
 			if not ok then
-				warn(string.format("[boot] %s.%s failed — %s", name, phase, tostring(err)))
+				Log.error("boot", "%s.%s failed — %s", name, phase, tostring(err))
 			end
 		end
 	end
 end
 
-print(string.format("[boot] server ready — %d service(s) in %.0fms", #order, (os.clock() - t0) * 1000))
+Log.info("boot", "server ready — %d service(s) in %.0fms", #order, (os.clock() - t0) * 1000)

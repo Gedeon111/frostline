@@ -11,6 +11,9 @@
 ]]
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Log = require(ReplicatedStorage:WaitForChild("Shared").Util.Log)
 
 local scripts = Players.LocalPlayer:WaitForChild("PlayerScripts")
 local controllersFolder = scripts:WaitForChild("Controllers")
@@ -26,7 +29,7 @@ for _, module in ipairs(controllersFolder:GetChildren()) do
 			controllers[module.Name] = result
 			table.insert(order, module.Name)
 		else
-			warn(string.format("[boot] require failed: %s — %s", module.Name, tostring(result)))
+			Log.error("boot", "require failed: %s — %s", module.Name, tostring(result))
 		end
 	end
 end
@@ -37,10 +40,10 @@ for _, phase in ipairs({ "Init", "Start" }) do
 		if type(controller) == "table" and type(controller[phase]) == "function" then
 			local ok, err = pcall(controller[phase])
 			if not ok then
-				warn(string.format("[boot] %s.%s failed — %s", name, phase, tostring(err)))
+				Log.error("boot", "%s.%s failed — %s", name, phase, tostring(err))
 			end
 		end
 	end
 end
 
-print(string.format("[boot] client ready — %d controller(s) in %.0fms", #order, (os.clock() - t0) * 1000))
+Log.info("boot", "client ready — %d controller(s) in %.0fms", #order, (os.clock() - t0) * 1000)

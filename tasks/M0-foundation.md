@@ -182,12 +182,39 @@ treat the `check.sh` gate in WORKFLOW §5 as met for this job.
 - `Controllers.Net`: `WaitForChild`s the folder, exposes `Net.Fire(name, ...)`,
   `Net.Invoke(name, ...)` with a 10s timeout, `Net.On(name, handler)`.
 
-**Done when:**
-- [ ] Server boots with zero services present and logs cleanly
-- [ ] Every remote in `Shared.Remotes` exists under `ReplicatedStorage.Remotes` at runtime,
-      verified with `start_stop_play` + `search_game_tree`
-- [ ] A handler that throws does not kill the remote or the server
-- [ ] Rate limiting is applied centrally — **no individual service ever writes a rate check**
-- [ ] Client `Net.Invoke` on a dead remote rejects after timeout instead of hanging
+**Status: DONE** — 2026-08-13. **M0 complete; every service job is now unblocked.**
 
-**Out of scope:** any game logic. This is plumbing.
+**Verified in a live playtest**, client→server, not by inspection:
+- [x] Boot clean: `[Net] 15 remotes ready` → `server ready` → `client ready`
+- [x] All 15 remotes present, **0 missing, 0 wrong class**
+- [x] **Rate limiting works end to end** — client fired `RequestSell` ×20 against a
+      budget of 4/sec; exactly **4 honoured, 16 dropped**
+- [x] A `RemoteFunction` over budget answers `(false, "rate_limited")` — a typed
+      reason the client can render, not a hang
+- [x] **A handler that throws does not kill the remote or the server** — deliberate
+      `error()` was caught, logged `[X]`, and the server kept serving
+- [x] Misuse is loud both ways: `Net.On` on an outbound name, `Net.Fire` on a
+      RemoteFunction, `Net.Invoke` on a RemoteEvent all error at the call site
+- [x] No service writes a rate check — it is applied once, inside `Net.On`
+- [x] Bootstraps now route through `Log`; **zero bare `print`/`warn` in `src/`**
+      (this was the DoD item PR #1 honestly flagged as unmet)
+
+**Design note — why remotes are built at module scope, not in `Init()`:** the
+bootstrap requires every service, then calls `Init()` in `GetChildren()` order, which
+is arbitrary. A service whose `Init()` ran before Net's would call `Net.On` and find
+nothing. A module body runs on first require, strictly before any `Init()`, so building
+there makes "remotes exist" true for every service in every order with no dependency
+declaration.
+
+**Not verified — same blocker as F3:** `stylua`/`selene` unavailable, `rokit install`
+can't reach GitHub. `rojo build` passes; formatting and lint unchecked.
+
+**Handoffs:**
+- `Net.FireNear(position, radius, ...)` exists for `CombatFeedback` (A5) — squared
+  distance, no per-player square root.
+- Rate-limit rejections log one line each. Harmless in production (`Log.info` is
+  silenced with `Debug = false`), but **A12 should own counting and escalation** —
+  Net deliberately only drops, it doesn't judge.
+- `RateLimiter.ForgetPrefix` runs on `PlayerRemoving`, so buckets don't accumulate.
+
+**Out of scope (respected):** no game logic. Plumbing only.

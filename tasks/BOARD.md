@@ -49,14 +49,14 @@ The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MON
 
 ---
 
-## M0 · Foundation — everything blocks on this (~1 sitting, sequential)
+## M0 · Foundation — **COMPLETE**. Every service job below is now unblocked.
 
 | ID | Job | Owner | Depends | Status |
 |---|---|---|---|---|
 | F1 | Project scaffold + datamodel + WorkLog | Architect | — | **DONE** |
 | F2 | Shared contracts: Types, Remotes, Config — **CONTRACT FROZEN** | Architect | F1 | **DONE** |
 | F3 | Core utils: Signal, Trove, RateLimiter, Format, TableUtil, Log | Architect | F1 | **DONE** |
-| F4 | Two-phase loader + Net wrappers (server & client) | Architect | F2, F3 | TODO |
+| F4 | Two-phase loader + Net wrappers (server & client) | Architect | F2, F3 | **DONE** |
 
 ## M1 · Vertical slice — one zone, one bear, full loop, saving
 
