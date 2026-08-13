@@ -1,0 +1,35 @@
+{
+  "name": "FROSTLINE",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "Assets": {
+        "$path": "assets"
+      },
+      "Remotes": {
+        "$className": "Folder"
+      }
+    },
+
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      },
+      "World": {
+        "$path": "src/world"
+      }
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client"
+        }
+      }
+    }
+  }
+}
