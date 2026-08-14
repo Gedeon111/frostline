@@ -1,37 +1,48 @@
 --!strict
 --[[
-	INVENTORYSERVICE — the carry-weight pack.
+	INVENTORYSERVICE — the carry. V2 (D-017).
 
-	This is the friction that makes the core loop a loop (GDD §2). Meat has
-	weight, the pack has a capacity, and a full pack forces the walk back.
-	Without it there is no trip, and without the trip there is no game.
+	The friction that makes the loop a loop (GDD §2). Meat has weight, the
+	carrier has a capacity, and a full carrier forces the walk home. Without it
+	there is no trip, and without the trip there is no game.
 
-		local added = InventoryService.TryAdd(player, "snow_cub", 2)
-		local contents = InventoryService.Clear(player)   -- SellService pays for this
+		local added = InventoryService.TryAdd(player, "frost_cut", 2)
+		local moved = InventoryService.TryRemove(player, "frost_cut", 2)
 
-	Capacity is derived from the pack upgrade level every time it is asked for,
-	never cached. A capacity upgrade must take effect on the very next pickup,
-	not after a rejoin.
+	WHAT CHANGED FROM V1: contents are keyed by `meatId` rather than creature
+	tier, capacity comes from the `carrier` track, and `Clear` is gone. Clear
+	existed for SellService — one call that emptied the pack and handed it to
+	something that paid for it. There is no such action now: meat leaves the
+	carrier only by moving INTO the refrigerator, which is a transfer, not a
+	sale. `TryRemove` and `RemoveAll` replace it, and neither one produces cash.
+
+	VARIANTS ARE NEVER COLLAPSED. `frost_cut` and `frost_cut_golden` are
+	separate keys the whole way through, because collapsing them at any point
+	would silently pay ordinary prices for golden stock — the exact failure
+	ECONOMY §2 exists to prevent.
+
+	Capacity is derived from the carrier level on every call, never cached. An
+	upgrade must take effect on the very next pickup, not after a rejoin.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Creatures = require(Shared.Config.Creatures)
-local Upgrades = require(Shared.Config.Upgrades)
+local Meat = require(Shared.Config.Meat)
 local Signal = require(Shared.Util.Signal)
 local Log = require(Shared.Util.Log)
 
 local DataService = require(ServerScriptService.Services.DataService)
+local UpgradeService = require(ServerScriptService.Services.UpgradeService)
 
 local InventoryService = {}
 
--- (player, weight, capacity) — A2 replicates from this; B3's pack bar reads it.
+-- (player, weight, capacity) — StateService replicates from this.
 InventoryService.Changed = Signal.new()
 
 --[[
-	Flat capacity bonus from gamepasses (+100 Pack, MONETIZATION §4).
+	Flat capacity bonus from gamepasses (+100 Carrier, MONETIZATION §4).
 
 	Stubbed to 0 until A13. Written as a call site now so the bonus lands in one
 	place rather than being remembered in three.
@@ -41,11 +52,14 @@ local function gamepassBonus(_player: Player): number
 end
 
 function InventoryService.GetCapacity(player: Player): number
-	local data = DataService.GetData(player)
-	if not data then
+	-- nil means the profile is not loaded. Zero capacity is the safe answer:
+	-- every add is refused until the real level is known, rather than a player
+	-- briefly carrying against a made-up maximum.
+	local base = UpgradeService.GetValue(player, "carrier")
+	if not base then
 		return 0
 	end
-	return Upgrades.GetValue("pack", data.upgrades.pack) + gamepassBonus(player)
+	return base + gamepassBonus(player)
 end
 
 function InventoryService.GetWeight(player: Player): number
@@ -53,19 +67,7 @@ function InventoryService.GetWeight(player: Player): number
 	if not data then
 		return 0
 	end
-
-	local total = 0
-	for tierId, count in pairs(data.pack) do
-		local tier = Creatures.Get(tierId)
-		if tier then
-			total += tier.meatWeight * count
-		else
-			-- A tier removed from config while a player still carries it.
-			-- Counting it as weightless is wrong; log so it gets noticed.
-			Log.once("pack_" .. tierId, "Inv", "unknown tier '%s' in a pack", tierId)
-		end
-	end
-	return total
+	return Meat.WeightOf(data.carry)
 end
 
 function InventoryService.GetFree(player: Player): number
@@ -76,18 +78,40 @@ function InventoryService.IsFull(player: Player): boolean
 	return InventoryService.GetFree(player) <= 0
 end
 
+function InventoryService.IsEmpty(player: Player): boolean
+	local data = DataService.GetData(player)
+	return data == nil or next(data.carry) == nil
+end
+
+--[[
+	Contents, copied.
+
+	Handing out the live table would let a caller mutate the carry without
+	going through TryAdd, bypassing every capacity check in this file. The
+	packet requires it explicitly: mutation of returned contents cannot affect
+	the profile.
+]]
+function InventoryService.GetContents(player: Player): { [string]: number }
+	local data = DataService.GetData(player)
+	if not data then
+		return {}
+	end
+	return table.clone(data.carry)
+end
+
 --[[
 	Adds up to `count` items, returning how many actually fit.
 
-	PARTIAL ADDS ARE CORRECT, not a compromise. A pack with 3 free weight
-	accepts one 2-weight meat and refuses the rest. The alternatives are both
-	worse: refusing the whole drop loses the player a kill they earned, and
-	accepting it all silently breaks the capacity rule the entire loop rests on.
+	PARTIAL ADDS ARE CORRECT, not a compromise. A carrier with 3 free weight
+	accepts one 2-weight cut and refuses the rest. Both alternatives are worse:
+	refusing the whole drop loses the player a kill they earned, and accepting
+	it all silently breaks the capacity rule the entire loop rests on.
 
-	A5 relies on this — the kill still counts when the pack is full, the player
-	just carries less of it. Losing a kill to a full pack feels like theft.
+	CombatService relies on this — the kill still counts when the carrier is
+	full, the player just carries less of it. Losing a kill to a full carrier
+	feels like theft.
 ]]
-function InventoryService.TryAdd(player: Player, tierId: string, count: number): number
+function InventoryService.TryAdd(player: Player, meatId: string, count: number): number
 	if count <= 0 then
 		return 0
 	end
@@ -97,90 +121,122 @@ function InventoryService.TryAdd(player: Player, tierId: string, count: number):
 		return 0
 	end
 
-	local tier = Creatures.Get(tierId)
-	if not tier then
-		Log.warn("Inv", "TryAdd with unknown tier '%s'", tierId)
+	local def = Meat.Get(meatId)
+	if not def then
+		Log.warn("Inv", "TryAdd with unknown meat '%s'", meatId)
 		return 0
 	end
 
-	-- A zero or negative weight would divide by zero below and let a player
-	-- carry infinite meat. Guard it rather than trusting config.
-	if tier.meatWeight <= 0 then
-		Log.warn("Inv", "tier '%s' has non-positive meatWeight", tierId)
+	-- A zero or negative weight divides by zero below and lets a player carry
+	-- infinite meat. Guard it rather than trusting config.
+	if def.weight <= 0 then
+		Log.warn("Inv", "meat '%s' has non-positive weight", meatId)
 		return 0
 	end
 
 	local free = InventoryService.GetFree(player)
-	local fits = math.min(count, math.floor(free / tier.meatWeight))
+	local fits = math.min(count, math.floor(free / def.weight))
 	if fits <= 0 then
 		return 0
 	end
 
-	data.pack[tierId] = (data.pack[tierId] or 0) + fits
+	data.carry[meatId] = (data.carry[meatId] or 0) + fits
 	InventoryService.Changed:Fire(player, InventoryService.GetWeight(player), InventoryService.GetCapacity(player))
 	return fits
 end
 
 --[[
-	Empties the pack and returns what was in it.
+	Removes exactly `count`, or nothing at all.
 
-	SellService must clear BEFORE awarding, so a double-fire in one frame finds
-	an empty pack on the second pass and cannot double-pay.
+	All-or-nothing on purpose. This is the primitive StoreInventoryService (A18)
+	uses to move meat into the refrigerator, and a partial removal there would
+	take meat out of the carrier without a matching amount arriving in the
+	fridge if the second half of the transfer failed. The packet states it
+	directly: a failed removal changes nothing.
 ]]
-function InventoryService.Clear(player: Player): { [string]: number }
+function InventoryService.TryRemove(player: Player, meatId: string, count: number): boolean
+	if count <= 0 then
+		return false
+	end
+
+	local data = DataService.GetData(player)
+	if not data then
+		return false
+	end
+
+	local held = data.carry[meatId]
+	if not held or held < count then
+		return false
+	end
+
+	if held == count then
+		data.carry[meatId] = nil
+	else
+		data.carry[meatId] = held - count
+	end
+
+	InventoryService.Changed:Fire(player, InventoryService.GetWeight(player), InventoryService.GetCapacity(player))
+	return true
+end
+
+--[[
+	Empties the carry and returns what was in it.
+
+	Unlike V1's Clear this produces no cash and has no payer — it exists so a
+	full unload is one atomic step rather than a loop of TryRemove calls that
+	could fail halfway and leave meat split between two places.
+
+	The caller owns what comes back. If depositing it fails, the caller must put
+	it back with TryAdd; nothing here does that for them, because this service
+	has no idea where the meat was going.
+]]
+function InventoryService.RemoveAll(player: Player): { [string]: number }
 	local data = DataService.GetData(player)
 	if not data then
 		return {}
 	end
 
-	local contents = data.pack
-	data.pack = {}
+	local contents = data.carry
+	data.carry = {}
 
 	InventoryService.Changed:Fire(player, 0, InventoryService.GetCapacity(player))
 	return contents
 end
 
-function InventoryService.GetContents(player: Player): { [string]: number }
-	local data = DataService.GetData(player)
-	if not data then
-		return {}
-	end
-	-- A copy: handing out the live table would let a caller mutate the pack
-	-- without going through TryAdd, bypassing every capacity check here.
-	return table.clone(data.pack)
-end
-
-function InventoryService.IsEmpty(player: Player): boolean
-	local data = DataService.GetData(player)
-	return data == nil or next(data.pack) == nil
-end
-
 --[[
-	What the contents are worth before multipliers. SellService applies those.
-	Lives here because it needs the same tier lookup the weight maths uses.
+	What contents are worth before multipliers.
+
+	Store checkout applies the multiplier once, at the sale (ECONOMY §1). This
+	is a pure helper over Config.Meat and does not read a profile, so it works
+	for a customer's basket as readily as for a carry.
 ]]
 function InventoryService.GetValue(contents: { [string]: number }): number
-	local total = 0
-	for tierId, count in pairs(contents) do
-		local tier = Creatures.Get(tierId)
-		if tier then
-			total += tier.meatValue * count
-		end
-	end
-	return total
+	return Meat.ValueOf(contents)
 end
 
 function InventoryService.Init() end
 
 function InventoryService.Start()
-	-- Capacity changes when the pack upgrade is bought; push the new value so
-	-- the client's bar updates without waiting for the next pickup.
+	-- Push once on load so the client's carry bar has real numbers before the
+	-- first pickup rather than rendering zeros until something happens.
 	DataService.Loaded:Connect(function(player: Player)
 		InventoryService.Changed:Fire(
 			player,
 			InventoryService.GetWeight(player),
 			InventoryService.GetCapacity(player)
 		)
+	end)
+
+	-- A carrier upgrade changes capacity immediately, with no pickup to trigger
+	-- the push. Without this the bar shows the old maximum until the next kill.
+	UpgradeService.Changed:Connect(function(player: Player, track: string)
+		if track == "carrier" then
+			InventoryService.Changed:Fire(
+				player,
+				InventoryService.GetWeight(player),
+				InventoryService.GetCapacity(player)
+			)
+		end
 	end)
 end
 
