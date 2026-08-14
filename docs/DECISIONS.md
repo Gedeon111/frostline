@@ -479,3 +479,58 @@ ownership — stubbed to `false` until then), B9.
 ---
 
 <!-- Add new decisions below this line -->
+### D-017 · 2026-08-14 · ACCEPTED · Player-run stores replace instant sell pads
+
+**Decision (Gedeon's call).** FROSTLINE is a low-input hunting-and-store simulator set in a
+fictional Arctic frontier settlement. Eight players receive one private store plot each. All
+players hunt in one shared wilderness, carry visible stacks of meat home, stock their own
+refrigerator, serve NPC customers at a register, and collect physical cash from the counter.
+
+The two connected loops are now:
+
+```text
+hunt → carry → stock refrigerator
+                  ↓
+customer → register → cash pile → collect → upgrade → hunt
+```
+
+This supersedes the old `pack → SellPad → immediate payout` loop, the Outpost Trader, and the
+five-zone progression as the first product milestone. It also replaces harpoons with
+chopping-style axes. The existing creature, validated-combat, data, currency, state, analytics,
+and networking foundations should be adapted rather than discarded.
+
+**Combat control remains D-016.** A normal player taps once per swing. Auto-Swing is available
+for the existing ten-minute lifetime trial, then requires the `autoswing` gamepass, and remains
+toggleable. D-015's server-authoritative hitbox and bounded cleave also remain. This decision
+does not turn free hold-to-swing on.
+
+**World layout.** The eight plot rectangles and the shared hunting rectangle in the contractor
+blockout are adjacency diagrams, not final terrain. Customer traffic enters from the settlement
+side of each plot. Players and hunter workers leave from the wilderness side. Multiple equivalent
+gates/trails and distributed creature spawns must keep travel time fair between plots. The shared
+field must read as an expansive snowy wilderness, not a communal backyard or green lawn.
+
+**Store transaction authority.** Refrigerator stock is server-owned. A customer reserves stock
+before taking it, preventing two customers from buying the same item. Checkout moves value into a
+persistent `unclaimedCash` ledger. `CurrencyService.Award` is called only when the player collects
+the counter cash. Visual meat and cash are projections of server state, never the state itself.
+
+**Workers.** Basic stocker, cashier, and hunter workers are ordinary-cash progression and appear
+before rebirth. Rebirth may improve worker slots, speed, and multipliers; it may not gate the first
+worker. Workers use the same authoritative service APIs as players and do not write profile tables
+directly.
+
+**Commercial scope.** D-016's Auto-Swing trial/pass is the only monetization mechanic carried into
+the corrected vertical slice. Auto-Sell is removed because bypassing the refrigerator, customers,
+register, and cash collection would sell the removal of the game itself. Other SKUs are hypotheses
+until the corrected loop proves retention.
+
+**Contract status.** ARCHITECTURE §3–4 v1 is now a legacy contract. No implementation packet for
+the corrected slice may start until new job `F5` atomically updates `Types`, `Remotes`, config, the
+profile template/migration, and contract tests. Existing in-flight work remains untouched and must
+be re-based or re-specced after F5; it must not silently adapt shared files.
+
+**Blast radius:** GDD, ARCHITECTURE §3–7, ECONOMY, MONETIZATION, ART_BIBLE, all M1/M2 packets,
+`Types.luau`, `Remotes.luau`, all config tables, profile schema, StateService replication,
+InventoryService, SellService (retired), ToolService (axe replacement), HUD, effects, analytics,
+world markers, and verification tests.

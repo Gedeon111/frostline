@@ -1,316 +1,333 @@
 # Architecture — FROSTLINE
 
-**Status: FROZEN.** Everything in §3 (Remotes) and §4 (Data schema) is a contract that
-parallel workers code against. Changing it requires a `docs/DECISIONS.md` entry approved by
-the Architect. If your job "needs" a contract change, stop and file the RFC first.
+**Status: V2 TARGET CONTRACT, approved by D-017.** Sections 3–4 define the contract that job
+`F5` must implement atomically. Until F5 lands, the checked-in shared Luau modules are the
+legacy v1 contract and corrected-slice feature jobs are blocked.
 
-## 1. Workflow — hybrid (see D-010)
+## 1. Workflow
 
-**Files are the source of truth.** All scripting and editing happens in `src/`, synced into
-Studio by Rojo. The Studio MCP is kept for **verification only**.
+Files are the source of truth. Scripts are authored under `src/`, synced into Studio with
+Rojo, and verified in the real engine. Hand-built world geometry and live WorkLog claims remain
+Studio-owned. See WORKFLOW.md for branch, ownership, claim, and test rules.
 
-| Surface | Tool | Notes |
-|---|---|---|
-| Write / edit scripts | `src/**` + `Read`/`Edit`/`Grep` | cheap, git-native, branches and PRs work |
-| Sync into the engine | `rojo serve` / `rojo build` | one direction: files → Studio |
-| Playtest, console, screenshots | Studio MCP | `start_stop_play`, `get_console_output`, `screen_capture` |
-| Run checks in-engine | Studio MCP `execute_luau` | **read-only**; never mutate scripts |
-| World geometry | Studio, by hand | not managed by Rojo (see §7) |
+The D-017 reset is intentionally split:
 
-**The rule: scripts flow one direction, files → Studio.** Never edit a script in Studio — Rojo
-overwrites it on the next sync, silently, with no history. `multi_edit` is not used on this
-project.
+1. Architect approves the design, target contracts, economy requirements, and new packets.
+2. `F5` updates all frozen shared Luau contracts plus the profile migration in one reviewed job.
+3. Corrected-slice jobs implement only after F5.
+4. Old jobs are reused only where the new packets explicitly say so.
 
-**Do not enable Team Create for scripts.** It makes Studio authoritative and fights Rojo.
-Geometry work is coordinated through `ServerStorage.WorkLog` instead (WORKFLOW §2).
-
-```bash
-rokit install                       # rojo, wally, selene, stylua, run-in-roblox
-wally install                       # React, ReactRoblox, UILabs
-rojo serve                          # live sync into an open place
-rojo build -o Hunt.rbxlx            # produce a place file
-./scripts/check.sh                  # wally + stylua + selene + build
-```
-
-**No Knit, no Fusion.** Frameworks create version drift between workers and hide control
-flow. We use a small loader (§2) for everything that starts up.
-
-**UI is the one exception (D-011): React Lua, installed by Wally.** It is confined to
-`src/client/UI/**` — services and controllers stay plain. Versions are pinned in `wally.toml`
-and `wally.lock` is committed, which is what keeps the drift argument answered. Server-side
-third-party code is still pasted as a single ModuleScript with its license header intact —
-currently ProfileStore only.
-
-```bash
-wally install                       # Packages/ and DevPackages/, both gitignored
-```
-
-`Packages/` is restored from the lockfile, never committed. Run `wally install` after a fresh
-clone and after anyone edits `wally.toml`, or `rojo build` fails on the missing path.
+Do not make compatibility shims in random services. A temporary v1/v2 bridge belongs in F5 or
+DataService and must have a deletion condition.
 
 ## 2. Datamodel layout
 
-Left column is the file, right is where Rojo puts it. **Both are a contract** — dependent jobs
-reference the datamodel path, and `default.project.json` is what makes it true.
-
-```
-src/shared/**              →  ReplicatedStorage.Shared
-src/server/Server.server.luau →  ServerScriptService.Server        (the bootstrap Script)
-src/server/Services/**     →  ServerScriptService.Services
-src/server/Lib/**          →  ServerScriptService.Lib
-src/client/Client.client.luau →  StarterPlayerScripts.Client       (the bootstrap LocalScript)
-src/client/Controllers/**  →  StarterPlayerScripts.Controllers
-src/client/UI/**           →  StarterPlayerScripts.UI
-assets/**                  →  ReplicatedStorage.Assets
-tests/**                   →  ServerStorage.Tests
-Packages/**                →  ReplicatedStorage.Packages       (wally, gitignored)
-DevPackages/**             →  ReplicatedStorage.DevPackages    (wally, gitignored)
-                           →  ReplicatedStorage.Remotes  (empty Folder, Net fills at runtime)
+```text
+src/shared/**                    → ReplicatedStorage.Shared
+src/server/Server.server.luau    → ServerScriptService.Server
+src/server/Services/**           → ServerScriptService.Services
+src/server/Lib/**                → ServerScriptService.Lib
+src/client/Client.client.luau    → StarterPlayerScripts.Client
+src/client/Controllers/**        → StarterPlayerScripts.Controllers
+src/client/UI/**                 → StarterPlayerScripts.UI
+assets/**                        → ReplicatedStorage.Assets
+tests/**                         → ServerStorage.Tests
+Packages/**                      → ReplicatedStorage.Packages
+DevPackages/**                   → ReplicatedStorage.DevPackages
+                                → ReplicatedStorage.Remotes
 ```
 
-**Two things Rojo deliberately does NOT manage**, because it would delete them on sync:
-`Workspace` (hand-built geometry) and `ServerStorage.WorkLog` (live claim state). Neither
-appears in `default.project.json`, so Rojo leaves them alone.
+Rojo does not manage `Workspace` or `ServerStorage.WorkLog`.
 
-The resulting datamodel:
+Target asset layout:
 
+```text
+ReplicatedStorage.Assets
+  Creatures/
+  Customers/
+  Meat/
+  Tools/Axes/
+  CarryRacks/
+  StoreFixtures/
+  Workers/
+  Effects/
 ```
-ReplicatedStorage
-  Shared
-    Config/                ★ ARCHITECT-OWNED. Every tunable number lives here.
-      GameConfig             global constants (swing cd, respawn, autosave)
-      Zones                  5 zones: unlock cost, tier, population, spawn region names
-      Creatures              5 tiers: hp, drops, weight, value, model name, variants
-      Upgrades               3 tracks x 10 levels: effect value + cost curve
-      Companions / Eggs      added by G2
-      Tools / Products / Audio   asset + product ids
-    Types                  ★ shared Luau type defs. Import, never redefine.
-    Remotes                ★ remote NAME + signature table (§3)
-    Util/                    Signal · Trove · RateLimiter · Format · TableUtil · Log
-  Assets/                  Creatures · Props · Traders · Tools   (models, see §7)
-  Remotes/                 created at runtime by Net from Shared.Remotes
 
-ServerScriptService
-  Bootstrap                Script — the loader
-  Services/                one ModuleScript per service, see §5
-  Lib/ProfileStore         pasted, license header intact
+Runtime world layout:
 
-StarterPlayer.StarterPlayerScripts
-  Bootstrap                LocalScript — the loader
-  Controllers/             one ModuleScript per controller, see §6
-  UI/                      Ui builder + one ModuleScript per screen
-
+```text
 Workspace
-  World/                   hand-built zone geometry (see §7)
-  Creatures/               runtime spawn parent — never edited by hand
-
-ServerStorage
-  Tests/                   spec ModuleScripts, run via execute_luau
-  WorkLog/                 ★ claim before you edit — see WORKFLOW.md §2
-    README                   the protocol + Active() / OwnerOf() helpers
-    <JobID>                  one ModuleScript per job. NEVER a shared file.
+  World/
+    Plots/
+      Plot01 ... Plot08
+    HuntingGround/
+  Runtime/
+    Creatures/
+    Customers/
+    CashVisuals/
 ```
 
-`WorkLog` and `Tests` are dev-only and are stripped at release (P6).
+Every service/controller is a strict ModuleScript returning `Init()` and `Start()`. The
+existing two-phase loader remains.
 
-**Naming is load-bearing.** `multi_edit` and `search_game_tree` address scripts by exact
-path. Every packet references `ServerScriptService.Services.SellService`; create it at
-`ServerScriptService.SellService` and the jobs that depend on it break.
+## 3. Remote contract — V2 TARGET, FROZEN AFTER F5
 
-### Loader pattern
+All remotes are created from `Shared.Remotes` and accessed through the server/client `Net`
+wrappers. Never call `:FireServer()` directly outside `Net`.
 
-Every service/controller is a ModuleScript returning:
+### Server → client
 
-```lua
-local MyService = {}
-function MyService.Init() end   -- wire references, no cross-service calls yet
-function MyService.Start() end  -- safe to call other services, connect events
-return MyService
-```
-
-`init.server.luau` requires every module in `Services/`, calls `.Init()` on all, then
-`.Start()` on all. Two phases removes require-order dependency entirely. Same on client.
-
-## 3. Remote contract — FROZEN
-
-All remotes live in a single `ReplicatedStorage.Remotes` folder, created by the server at
-boot from `shared/Remotes.luau`, awaited by the client. Access only through `Net` wrappers
-(`server/Services/Net.luau`, `client/Controllers/Net.luau`) — never `:FireServer()` raw.
-
-**Server → Client**
-
-| Remote | Payload | Notes |
+| Remote | Payload | Purpose |
 |---|---|---|
-| `StateChanged` | `(partial: PlayerState)` | Partial diff of replicated state. Client merges. |
-| `Notify` | `(kind: "cash"\|"unlock"\|"error"\|"full", text: string, amount: number?)` | Toasts. |
-| `CombatFeedback` | `(creature: Model, damage: number, killed: boolean)` | VFX/SFX trigger only. Never authoritative. |
-| `CreatureSpawned` / `CreatureDied` | `(creature: Model, tierId: string, variant: string?)` | Client-side decoration. |
+| `StateChanged` | `(partial: PlayerState)` | Authoritative profile/store state diff. |
+| `Notify` | `(kind: NotifyKind, text: string, amount: number?)` | Small user-facing notices. |
+| `CombatFeedback` | `(creature: Model, damage: number, killed: boolean)` | Cosmetic hit/kill response. |
+| `CreatureSpawned` / `CreatureDied` | `(creature: Model, tierId: string, variant: string?)` | Client decoration lifecycle. |
+| `CarryFeedback` | `(kind: CarryFeedbackKind, amount: number, source: Instance?, target: Instance?)` | Meat pickup/unload VFX and SFX trigger. |
+| `StoreFeedback` | `(kind: StoreFeedbackKind, amount: number, source: Instance?, target: Instance?)` | Stock, checkout, cash-spawn, and collection feedback. |
 
-**Client → Server** (all rate-limited, all revalidated server-side)
+Customer models and their movement replicate through the datamodel. Customer logic does not
+depend on a client remote.
+
+### Client → server
 
 | Remote | Payload | Server validates |
 |---|---|---|
-| `RequestSwing` (Event) | `(creature: Model)` | creature alive, distance ≤ `GameConfig.SwingRange`, cooldown elapsed, player in that zone |
-| `RequestSell` (Event) | `()` | player standing in a sell zone, pack non-empty |
-| `RequestPurchase` (Function) | `(track: string, )` → `(ok: boolean, reason: string?)` | track exists, next level exists, cash ≥ cost |
-| `RequestUnlockZone` (Function) | `(zoneId: string)` → `(ok, reason)` | zone exists, previous zone unlocked, cash ≥ cost |
-| `RequestTeleport` (Event) | `(zoneId: string)` | zone unlocked |
-| `RequestHatch` (Function) | `(eggId, count)` → `(ok, companions[], reason?)` | egg available in window, cash ≥ cost × count, count ≤ bundle limit |
-| `RequestEquip` (Function) | `(companionId, slot)` → `(ok, reason)` | owned, slot < limit (3 or 6 w/ pass) |
-| `RequestFuse` (Function) | `(companionId, tier)` → `(ok, reason)` | ≥ 5 duplicates at that tier |
-| `RequestClaim` (Function) | `(kind: "daily"\|"quest"\|"season"\|"index", id)` → `(ok, reward?, reason)` | earned, unclaimed, window valid per server `os.time` |
-| `RequestOffer` (Event) | `(offerId)` | offer active for this player, not expired, not purchased |
+| `RequestSwing` (Event) | `(creature: Model)` | cadence, target registration/alive, character, server-built hitbox, range |
+| `RequestPurchase` (Function) | `(track: UpgradeTrack)` → `(ok, RefusalReason?)` | profile loaded, track, next level, configured cost, funds |
+| `RequestSetting` (Function) | `(key: string, value: boolean)` → `(ok, RefusalReason?)` | allow-listed key and value |
+| `RequestWorkerAction` (Function) | `(workerId: WorkerId, action: WorkerAction)` → `(ok, RefusalReason?)` | plot ownership, worker existence, unlock/upgrade cost, legal transition |
 
-### The one rule
+Unloading, register operation, and cash collection have no client-to-server remote. Server
+services detect the player's authoritative character position inside configured world regions.
+The client cannot announce that it unloaded, completed a sale, or collected money.
 
-**The client sends intent, never outcome.** It never sends damage, cash, item counts,
-positions, or "I killed it." Any remote that would let the client assert a number is a bug,
-and job `A10` will find it.
+### Rule
 
-## 4. Data schema — FROZEN
+The client sends intent, never outcomes or quantities. It never sends damage, meat counts,
+sale value, cash value, capacity, worker production, or a trusted position.
 
-`ProfileStore` template. Bump `version` and add a migration in `DataService` to change it.
+## 4. Data schema — V2 TARGET, FROZEN AFTER F5
+
+`ProfileStore` template:
 
 ```lua
 {
-  version = 1,
-  cash = 0,
-  totalCashEarned = 0,          -- lifetime, drives leaderboard + rebirth eligibility
-  pack = {},                    -- { [tierId: string]: count: number }
-  upgrades = { pack = 1, boots = 1, harpoon = 1 },
-  unlockedZones = { shelf_ice = true },
-  rebirths = 0,
+    version = 2,
 
-  -- Growth track (G) — see docs/MONETIZATION.md
-  companions = {},              -- { [companionId]: { count, golden, rainbow } }
-  equipped = {},                -- array of ≤ 6 { id, tier }
-  indexClaimed = {},            -- { [milestone: string]: true }
-  eggStats = { hatches = 0, byEgg = {} },
-  quests = { daily = {}, weekly = {}, dailyResetAt = 0, weeklyResetAt = 0 },
-  season = { id = "", xp = 0, tier = 0, premium = false, claimed = {} },
-  boosts = {},                  -- { [boostId]: expiresAt }  ← timestamp, never remaining time
-  offers = { starterShownAt = 0, starterPurchased = false, dealsSeed = 0 },
-  social = { groupClaimed = false },
+    cash = 0,
+    totalCashEarned = 0,
 
-  funnelSteps = {},          -- onboarding milestones already fired (D-012)
-  stats = { kills = 0, sells = 0, playtimeSeconds = 0, goldenKills = 0 },
-  settings = { music = true, sfx = true, reducedEffects = false },
-  claims = { lastDailyAt = 0, dailyStreak = 0, redeemedCodes = {} },
-  receipts = {},                -- processed dev-product receipt IDs, for idempotency
-  firstJoinAt = 0,
-  lastJoinAt = 0,
+    carry = {}, -- { [meatId: string]: count: number }
+    store = {
+        fridge = {}, -- { [meatId: string]: count: number }
+        unclaimedCash = 0,
+    },
+
+    upgrades = {
+        axe = 1,
+        carrier = 1,
+        fridge = 1,
+        register = 1,
+    },
+
+    workers = {
+        stocker = { unlocked = false, level = 0, enabled = false },
+        cashier = { unlocked = false, level = 0, enabled = false },
+        hunter = { unlocked = false, level = 0, enabled = false },
+    },
+
+    rebirths = 0,
+    settings = {
+        music = true,
+        sfx = true,
+        reducedEffects = false,
+        autoSwing = true,
+    },
+
+    funnelSteps = {},
+    stats = {
+        kills = 0,
+        meatStocked = 0,
+        customerSales = 0,
+        cashCollections = 0,
+        playtimeSeconds = 0,
+        goldenKills = 0,
+    },
+
+    receipts = {},
+    firstJoinAt = 0,
+    lastJoinAt = 0,
 }
 ```
 
-**Replicated subset** (what the client is allowed to know, sent via `StateChanged`):
-`cash`, `pack`, `packWeight`, `packCapacity`, `upgrades`, `unlockedZones`, `rebirths`,
-`companions`, `equipped`, `indexClaimed`, `quests`, `season`, `boosts`, `offers`,
-`multiplierBreakdown`, plus `autoSwing`, `autoSwingTrialEndsAt`, `autoSwingEnabled` (D-016)
-and `reducedEffects` (B4). Everything else stays server-side.
+`plotId` is session-only and never persisted. Customer reservations and queues are also
+session-only; services return reservations before releasing a plot.
 
-`autoSwing` and `autoSwingTrialEndsAt` are **derived, not stored** — computed per flush from
-`firstJoinAt` and pass ownership, so a trial cannot go stale mid-session.
+### V1 → V2 migration
 
-**Two schema rules that prevent the classic bugs in this genre:**
-- **Boosts store an expiry timestamp, never remaining duration.** Remaining-time is wrong the
-  moment a player rejoins or the server hops.
-- **All timers derive from server `os.time`.** Nothing in this schema is ever compared against
-  a client-supplied clock.
+F5 owns one deterministic migration and tests it:
 
-Session-locked. Autosave every 60s (`GameConfig.AutosaveInterval`) and on leave.
-`game:BindToClose` flushes all profiles. Never write a DataStore call outside `DataService`.
+- `pack` contents map to `carry` meat ids without losing counts.
+- `upgrades.pack` maps to `upgrades.carrier`.
+- `upgrades.harpoon` maps to `upgrades.axe`.
+- refrigerator and register start at their configured initial levels.
+- legacy boots and zone unlocks are removed; the game is pre-release, so no Robux entitlement
+  or public-player purchase is discarded.
+- cash, lifetime earnings, settings, analytics milestones, receipts, timestamps, and applicable
+  stats are preserved.
+- old companion/meta fields may remain in migrated storage temporarily but are not replicated
+  or used until their post-slice design is reapproved.
+
+### Replicated subset
+
+`cash`, `carry`, `carryWeight`, `carryCapacity`, `fridge`, `fridgeWeight`,
+`fridgeCapacity`, `unclaimedCash`, `upgrades`, `workers`, session `plotId`,
+`autoSwing`, `autoSwingTrialEndsAt`, `autoSwingEnabled`, and `reducedEffects`.
+
+`autoSwing` and `autoSwingTrialEndsAt` remain derived from `firstJoinAt`, gamepass ownership,
+the configured trial duration, and the persisted toggle.
+
+Session locking, autosave, BindToClose, and the rule that only DataService touches DataStores
+remain unchanged. Every service must guard a nil `DataService.GetData(player)`.
 
 ## 5. Server services
 
 | Service | Owns |
 |---|---|
-| `DataService` | ProfileStore lifecycle, schema migration, leaderstats, `GetData(player)` |
-| `StateService` | Diffing profile → client, batching `StateChanged` at 10Hz |
-| `CurrencyService` | `Award(player, amount, source)`, `Spend(player, amount)` — the **only** paths that touch `cash` |
-| `InventoryService` | pack add/remove, weight math, capacity from upgrades, full-check |
-| `CreatureService` | spawning from zone config, HP tracking, respawn timers, death → drops |
-| `CombatService` | `RequestSwing` handling, damage calc, cooldown, range, aggro-free |
-| `SellService` | sell-zone detection, payout calc (value × count × multipliers), pack clear |
-| `UpgradeService` | purchase validation, cost lookup, applying effects (WalkSpeed, capacity, damage) |
-| `ZoneService` | unlock validation, barrier state, zone membership per player, teleport |
-| `ToolService` | equipping harpoon model per upgrade level, swing animation trigger |
-| `MonetizationService` | gamepass ownership cache, dev product receipts, multiplier assembly |
-| `AnalyticsService` | typed event emit, funnel + economy sinks/sources |
-| `AntiCheat` | rate limiters, distance/teleport sanity, remote arg validation |
-| `Net` | remote creation, typed wrappers, per-remote rate limiting |
-| `CompanionService` | ownership, equip slots, fusion, index, `GetBonus(player, type)` |
-| `EggService` | hatch rolls, luck application, egg availability windows |
-| `OfferService` | Starter Pack, daily deals, server-authoritative countdowns |
-| `SeasonService` | season XP, tiers, free/premium tracks, rollover |
-| `QuestService` | daily/weekly quest progress off analytics events |
-| `EventService` | scheduled events, potion boosts, expiry timestamps |
+| `DataService` | Profile lifecycle, v1→v2 migration, leaderstats, loaded/unloaded signals. |
+| `StateService` | Batched v2 state replication and session `plotId`. |
+| `CurrencyService` | The only writes to spendable `cash`: `Award` and `Spend`. |
+| `InventoryService` | Carry add/remove, weight, capacity, partial adds. |
+| `PlotService` | Assign/release one of eight plots; marker lookup; owner checks. |
+| `StoreInventoryService` | Refrigerator storage, capacity, atomic reserve/return/consume. |
+| `CreatureService` | Shared-ground spawning, server HP, death, configured meat drops. |
+| `CombatService` | Server cadence, hitbox/cleave, damage, kill attribution. |
+| `ToolService` | Axe model by upgrade threshold and server-triggered swing animation. |
+| `CustomerService` | Per-plot customer state machine and queue admission. |
+| `RegisterService` | Server region detection, checkout progress, reservation consumption, unclaimed cash. |
+| `CashPickupService` | Counter ledger visuals, proximity collection, CurrencyService award. |
+| `UpgradeService` | Axe/carrier/fridge/register purchases and configured effects. |
+| `WorkerService` | Unlock/upgrade/toggle workers; run work through domain-service APIs. |
+| `MonetizationService` | Auto-Swing entitlement/trial and later approved products. |
+| `AnalyticsService` | Typed funnel and economy events. |
+| `Net` | Remote construction, wrappers, argument/rate validation. |
 
-**Multiplier assembly** is centralized: `MonetizationService.GetCashMultiplier(player)`
-returns the full product from `docs/MONETIZATION.md` §1 —
-`(1 + companionBonus) × gamepass × (1 + 0.25×rebirths) × boost × event × seasonBonus`,
-clamped to `GameConfig.MaxMultiplier`.
+`SellService` is retired by D-017. It must not be adapted into a hidden instant-sale path.
+Legacy `ZoneService` is outside the corrected slice; future hunting-region progression gets a
+new packet after the core store loop is measured.
 
-**This is the single most important function in the codebase.** Six systems feed it and one
-system reads it. If a seventh system ever stacks its own multiplier at a call site, the
-economy becomes unpredictable and untunable. `SellService` calls it. Nothing else multiplies.
-It also returns a `breakdown` table so the HUD can show the player exactly what's contributing
-(job G12) — legibility here is what makes players buy the next multiplier.
+### Customer state machine
+
+```text
+ENTER → SEEK_STOCK → RESERVE → TAKE → QUEUE → CHECKOUT → LEAVE
+                     │                    │
+                     └──── cancel/return ─┘
+```
+
+Only StoreInventoryService can reserve or consume fridge stock. A customer carries a reservation
+token, not a trusted price. RegisterService resolves sale value from configured meat data at
+checkout. Removing a customer or unloading a profile returns any unconsumed reservation.
+
+### Cash transaction boundary
+
+```text
+checkout
+  → consume reservation
+  → add configured value to store.unclaimedCash
+  → refresh counter visual
+
+player enters pickup radius
+  → atomically remove amount from store.unclaimedCash
+  → CurrencyService.Award(player, amount, "store_collection")
+  → fire collection feedback
+```
+
+A failed award restores the ledger amount. Visual pile count is capped and represents value in
+buckets; it is never one Part per currency unit.
+
+### Worker boundary
+
+Workers never mutate profile tables or call CurrencyService directly:
+
+- stocker calls StoreInventoryService transfer APIs;
+- cashier calls RegisterService processing APIs;
+- hunter calls the configured production/drop pipeline and deposits meat, never cash.
 
 ## 6. Client controllers
 
 | Controller | Owns |
 |---|---|
-| `Net` | remote wrappers, request/response |
-| `State` | local mirror of replicated state + `Changed` signal per key |
-| `HarvestController` | swing hitbox — scans for creatures in front of the character, fires `RequestSwing` on cooldown (D-015; no prompt, no input) |
-| `HudController` | cash counter, pack weight bar, zone label, sell-direction arrow |
-| `ShopController` | shop screen open/close, purchase requests, affordability tinting |
-| `ZoneController` | barrier prompts, unlock confirm, teleport menu |
-| `NotifyController` | toast queue |
-| `EffectsController` | hit particles, floating numbers, hitstop, kill pop |
-| `SoundController` | SFX bus, per-zone ambience/music crossfade, settings respect |
-| `CameraController` | slight FOV kick on swing, no shake beyond 0.15 studs |
+| `Net` | Typed remote wrappers. |
+| `State` | Local mirror of the replicated subset. |
+| `HarvestController` | Tap input, trial/pass Auto-Swing loop, cosmetic cadence, target hint. |
+| `CarryController` | Visible wooden carrier and representative stack rendering. |
+| `StoreEffectsController` | Meat flight, checkout response, cash magnet/fly animation. |
+| `HudController` | Cash, carry fullness, fridge state, Auto-Swing trial/toggle, guidance. |
+| `ShopController` | Upgrade display and requests. |
+| `WorkerController` | Plot-computer UI and worker requests. |
+| `EffectsController` | Combat-only hit/kill effects. |
+| `SoundController` | Audio buses and contextual cues. |
+| `CameraController` | Restrained movement/combat feel. |
 
-## 7. World and assets (revised by D-009)
+No controller computes carry weight, fridge capacity, sale value, checkout progress, or worker
+yield. Those values arrive through StateChanged or cosmetic feedback.
 
-**Zones are built by hand in Studio**, under `Workspace.World.<zoneId>`. A human doing level
-design produces a better map than a config table, and Team Create makes that collaborative.
-The earlier code-generation approach existed only because agents couldn't drag parts.
+## 7. World contract
 
-Config no longer describes geometry. `Config.Zones` keeps **gameplay data only** — unlock
-cost, creature tier, population, and the *names* of marker instances the code looks up:
+All markers are anchored, non-collidable unless they are visible fixtures, and tagged or named
+exactly as specified.
 
-```lua
-shelf_ice = {
-    displayName = "Shelf Ice",
-    unlockCost = 0,
-    creatureTier = "snow_cub",
-    population = 25,
-    spawnRegion = "SpawnZone",   -- Workspace.World.shelf_ice.SpawnZone
-    sellPads   = { "SellPad" },  -- Workspace.World.shelf_ice.SellPad
-    barrier    = "Barrier",
-    lighting   = { ClockTime = 14, Ambient = ..., FogEnd = 900 },
-}
+```text
+Workspace.World
+  Plots
+    Plot01 ... Plot08
+      PlayerSpawn
+      StoreEntrance
+      CustomerSpawn
+      CustomerExit
+      CustomerPath
+        01 ... NN
+      Refrigerator
+        UnloadZone
+        CustomerPickup
+        MeatDisplay
+      Register
+        OperatorZone
+        QueuePoints
+          01 ... NN
+        CashOrigin
+      WorkerComputer
+      HunterDropoff
+      HuntGate
+  HuntingGround
+    SpawnZone
+    PlayerEntrance01 ... NN
 ```
 
-**The contract between builder and coder is instance names.** Whoever builds a zone creates
-a Part named `SellPad` and a Part named `SpawnZone`; `SellService` and `CreatureService` find
-them by name. Rename one in Studio and the service silently stops working — so renaming a
-marker is a contract change and needs the same RFC as any other.
+PlotService validates all eight plots at startup and refuses duplicate assignment. Missing
+required markers fail loudly in debug builds and disable only the affected plot in production.
 
-Agents can still build geometry when it's faster (`execute_luau` to place parts
-procedurally, `generate_mesh` for models, `insert_asset` for marketplace props). Use whichever
-is quicker for the thing at hand: code for repetitive scatter, hands for composition.
+Travel fairness is part of the contract:
 
-**Models** live under `ReplicatedStorage.Assets`, produced by `generate_mesh` /
-`insert_asset` / `upload_image` rather than exported files.
+- every plot has an equivalent route to at least one hunting entrance;
+- creature distribution cannot permanently favor one entrance;
+- customer route length and register queue capacity are equivalent across plots;
+- decorative changes cannot move gameplay markers without an architecture review.
 
-## 8. Performance budget (enforced in E2)
+The green contractor block is never shipped as literal terrain. World art must make the shared
+space read as wilderness using terrain shape, snow cover, occlusion, and multiple trails.
 
-- `StreamingEnabled = true`, target radius 512
-- ≤ 20k parts in workspace at rest
-- Creatures use **no Humanoid** — a Model with a PrimaryPart, custom animation via
-  `AnimationController`. 5 zones × 25 creatures = 125 Humanoids would eat the server.
-- Server heartbeat ≤ 4ms at 20 players
-- Client ≥ 50 FPS on a 2018 mid-range phone
-- One `RunService` connection per controller, maximum. Batch, don't sprinkle.
+## 8. Performance budget
+
+- `StreamingEnabled = true`.
+- Eight plots function concurrently.
+- Customer and creature population caps come only from config.
+- Customer navigation uses cached plot routes or bounded pathfinding; never one pathfinding
+  request per NPC per frame.
+- One scheduler loop per service, not one unbounded loop per customer, worker, or creature.
+- Carry stacks, refrigerator stock, and cash piles use representative pooled visuals with hard
+  config caps.
+- Server heartbeat target remains within the configured QA budget at full player count.
+- Client target remains at least 50 FPS on the project test phone.
+- Every connection and runtime Instance is cleaned when a plot releases or a profile unloads.

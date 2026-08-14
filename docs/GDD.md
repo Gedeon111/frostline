@@ -2,144 +2,202 @@
 
 ## 1. Pitch
 
-You are a hunter dropped on the Antarctic ice with a rusted harpoon. Ice bears roam the
-shelf. Kill them, haul the meat back to the outpost, sell it to the traders, and buy a
-bigger pack, faster boots, and a sharper harpoon. Every upgrade lets you push further out
-onto colder ice where the bears are bigger and worth more.
+FROSTLINE is a low-input Roblox simulator about running a meat shop on the edge of a fictional
+Arctic wilderness. Hunt frost bears with an axe, carry visible stacks of meat back to your own
+store, stock the refrigerator, serve customers at the register, collect the cash they leave on
+the counter, and reinvest in better equipment and workers.
 
-**Core fantasy:** the trip. Go out light, come back heavy, watch the number go up.
+Eight players share one settlement and one hunting wilderness. Each player owns one store plot,
+but everyone hunts in the same world.
 
-## 2. Core loop
+**Core fantasy:** leave the shop as a hunter, return loaded, then watch the little store come
+alive because of what you brought home.
 
+## 2. The two connected loops
+
+```text
+HUNT → CARRY → STOCK
+  ▲                │
+  │                ▼
+UPGRADE ← COLLECT ← CHECKOUT ← CUSTOMER
 ```
-      ┌──────────────────────────────────────────────┐
-      │                                              │
-   HUNT ──▶ CARRY ──▶ SELL ──▶ UPGRADE ──▶ UNLOCK ───┘
-   swing    weight    cash     capacity     new zone
-   at bear  fills     payout   speed        bigger bears
-            up        + toast  damage       higher value
-```
 
-1. **Hunt** — Walk into a bear. A hitbox rides in front of you and everything inside it is
-   struck automatically, once per swing cooldown — no prompt, no keypress (D-015). Bears have
-   HP; your tool level sets damage per swing. One swing hits **every** bear in the box, so
-   walking into a group melts it. Bears die, drop meat, meat auto-collects into your pack.
-2. **Carry** — Meat has *weight*. Your pack has a capacity. Full pack = you stop collecting
-   and must walk back. This is the friction that makes the loop a loop.
-3. **Sell** — Walk into the outpost sell-zone. A trader NPC prompt sells your whole pack.
-   Cash lands, `+$1,240` floats up, pack empties.
-4. **Upgrade** — Shop GUI at the outpost. Three tracks, 10 levels each: **Pack** (capacity),
-   **Boots** (walkspeed), **Harpoon** (damage).
-5. **Unlock** — Cash milestones open new zones. New zone = new bear tier = ~3.5x value.
-   Loop restarts one rung higher.
+### Hunting loop
 
-**Positioning, not clicking.** Swinging is automatic (D-015), but nothing else is: the player
-still has to walk to the bears, decide when the pack is full enough to be worth the trip, and
-walk back. The skill was never in pressing the button — it was in the trip. What D-015 removed
-is friction, not agency.
+1. Enter the shared hunting wilderness.
+2. Tap to swing a chopping-style axe at nearby frost bears. The server rebuilds the hitbox,
+   enforces range and cadence, and applies bounded cleave.
+3. On a kill, meat visibly flies toward the player's carrier and becomes authoritative carry
+   inventory.
+4. The carrier visibly stacks representative meat pieces. A full carrier stops accepting more.
+5. Return to the assigned plot and stand at the refrigerator's unload area. Meat transfers
+   automatically from the carrier into refrigerator stock, with pieces flying between them.
 
-The base game still has no auto-**collect** and no auto-**sell**; those remain gamepasses.
-Auto-Swing as a SKU is superseded and re-scoped to speed and reach — see §7 and D-015.
+### Store loop
 
-## 3. Content — 5 zones
+1. NPC customers enter from the settlement side of the plot.
+2. A customer reserves available refrigerator stock, walks to it, and takes the reserved item.
+3. The customer queues at the register.
+4. The player stands at the register to process the queue automatically. No repeated clicking.
+5. A completed sale increases the plot's server-authoritative unclaimed-cash ledger and creates
+   a matching visual cash pile on the counter.
+6. Walking near the pile collects it. Cash pieces magnet/fly to the player before the server
+   awards currency.
+7. Currency buys axe, carrier, refrigerator, register, and worker progression.
 
-| # | Zone | Creature | Bear HP | Meat value | Unlock cost |
-|---|---|---|---|---|---|
-| 1 | **Shelf Ice** — flat white plain, scattered ice blocks, the outpost | Snow Cub | 30 | 5 | free (start) |
-| 2 | **Glacier Ridge** — sloped, blue ice walls, wind | Frost Bear | 120 | 18 | 800 |
-| 3 | **Crevasse Fields** — dark cracks, narrow bridges | Ice Bear | 450 | 65 | 8,000 |
-| 4 | **Aurora Basin** — night, green sky, glowing snow | Aurora Bear | 1,800 | 240 | 60,000 |
-| 5 | **The Black Ice** — near-black, red rim light, storm | Titan Bear | 7,500 | 900 | 400,000 |
+The refrigerator is the bridge between the two loops. Hunting without stocking cannot produce
+customers; customers without checkout cannot produce collectible cash.
 
-Full numbers in `docs/ECONOMY.md`. Zones are separate physical areas on one map, gated by
-ice-wall barriers with a locked prompt. No teleport in M1; teleport pads added in M2.
+## 3. Combat controls and Auto-Swing
 
-**Rare variants (M2):** each tier has a 2% chance to spawn a **Golden** variant — same HP,
-10x meat value, gold-tinted with a light emitter. This is the "screenshot moment."
+D-015 and D-016 remain authoritative:
 
-## 4. Naming and content-safety note
+- A free player taps once per swing. Holding is not a substitute for the paid automation.
+- Every account receives Auto-Swing for the first ten minutes after its first join.
+- After the trial, Auto-Swing requires the `autoswing` gamepass.
+- Eligible players can toggle Auto-Swing on or off.
+- The client cooldown is cosmetic. The server validates the real cooldown, hitbox, targets,
+  zone membership, and damage.
+- Cleave is server-selected and bounded; the client never submits a victim list.
 
-Two naming calls, made deliberately — see `docs/DECISIONS.md` D-001:
+Automation is a convenience purchase, not extra server-authoritative damage. A crafted client
+may imitate the cadence but cannot exceed it.
 
-- **The traders are not "Eskimos."** That word is an outdated exonym considered offensive in
-  Canada and Greenland, and putting it in a published Roblox game is both a real-world
-  misstep and a live moderation risk. The vendors are **Outpost Traders** — a fictional
-  research-station faction in parkas. No real culture is depicted.
-- **The bears are fictional creatures, not polar bears.** Stylized silhouette, over-large
-  paws, faintly glowing eyes, tier-colored fur. Reads as fantasy, sidesteps the
-  "game about shooting an endangered species" framing entirely.
+## 4. World layout
 
-Neither change costs anything design-wise. Both are settled; don't reopen them per-job.
+The contractor blockout is an adjacency guide, not final terrain:
 
-## 5. Session shape
+- **Eight private plots** form the settlement edge. Each receives exactly one player per
+  server session.
+- The **shared hunting wilderness** sits beyond the plots and belongs to everyone.
+- Customers approach from a settlement road or village side.
+- Players and hunter workers leave through the wilderness side.
+- Multiple equivalent gates or trails and distributed creature spawns keep travel time fair
+  for every plot.
+- Snowbanks, fences, rock, trees, elevation, and winding trails make the hunting area feel
+  like a broad wilderness rather than a shared backyard.
+- Customer paths never cross active creature spawn areas.
 
-- **First 60 seconds:** spawn next to a cub, prompt says HOLD. Kill it. Meat flies into pack.
-  Pack bar fills. Arrow points to outpost. Sell. `+$50`. Shop pings.
-- **First 10 minutes:** ~6 pack upgrades, first Boots level, Zone 2 unlocked.
-- **First session (~30 min):** deep in Zone 2, Zone 3 in sight.
-- **Full clear:** ~8–12 hours to Zone 5 + max upgrades without gamepasses.
+Plot identity is session-local. A player keeps store inventory and upgrades, not a permanent
+plot number.
 
-## 6. Feel targets (non-negotiable, these are the game)
+## 5. Plot contents
 
-- Swing cooldown **0.6s**. Hit registers with a snap: freeze-frame 40ms, white flash on the
-  bear, chunk particles, low thud.
-- Kill is loud: bear ragdolls, meat pops out in an arc, `x4` counter ticks.
-- Walking back must be **short** — never more than ~20s from the far edge of a zone to a
-  sell point. Zone 2+ get satellite sell posts.
-- Pack-full is legible: bar turns red and a soft "clunk" plays. **D-015 removed the prompt
-  that used to read `PACK FULL`**, so the HUD is now the only surface that can say it — this
-  is a handoff to B3, and until B3 lands there is no pack-full signal at all.
-- Sell is the payoff: whole-pack sell, single big number, coin sound, no confirmation dialog.
+Every functional plot has the same named gameplay markers and fixtures:
 
-## 7. Companions — the collection layer
+- player spawn
+- store entrance and customer path
+- refrigerator plus unload and pickup markers
+- register plus operator, queue, and cash-counter markers
+- worker computer
+- wilderness exit
+- upgrade/shop interaction points
 
-Sled dogs, arctic foxes, snow owls, wolf pups, bear cubs. Working animals on an Antarctic
-expedition — which is why they read as native to this game rather than as Pet Simulator pets
-wearing a parka.
+Decoration may differ, but travel distance and usable floor area must stay competitively
+equivalent. Instance names are defined in ARCHITECTURE §7 and are a builder/coder contract.
 
-~40 companions across 7 rarities. Each carries one bonus — `cash`, `damage`, or `luck` —
-mapping onto the three existing upgrade tracks, so companions **multiply what's already
-there** instead of adding a fourth system to track. 3 equipped by default, 6 with a gamepass.
-Hatched from eggs bought with **in-game cash**, which makes eggs the primary currency sink and
-keeps the gacha loop free to enter.
+## 6. Progression
 
-Duplicates fuse: 5 → Golden (2x bonus), 5 Golden → Rainbow (5x). That's what makes a duplicate
-a step forward instead of a disappointment, and it's the endgame sink for players who already
-own everything.
+The corrected first progression tracks are:
 
-Full design in `docs/MONETIZATION.md` §2–3.
+- **Axe** — raises damage and swaps the visible axe model at configured thresholds.
+- **Carrier** — raises carried meat capacity and expands the visible wooden rack.
+- **Refrigerator** — raises stored meat capacity and may unlock larger visual displays.
+- **Register** — reduces player-operated checkout time and increases queue throughput.
+- **Workers** — unlock and improve automation through ordinary cash.
 
-## 8. Monetization
+Movement upgrades are secondary and must not make one plot location objectively superior.
+Additional creature regions, product tiers, cosmetics, companions, and rebirth are later
+layers, not dependencies of the first store loop.
 
-22 SKUs across gamepasses, dev products, and a season pass. Full table in
-`docs/MONETIZATION.md` §4. The design rule underneath all of them:
+## 7. Workers
 
-**Monetize depth, not access.** No paywalled zones, no pay-to-win against other players, no
-loot boxes bought directly with Robux (eggs cost in-game cash; Robux buys cash, luck, and
-speed). Free players see the entire game — which is what keeps them in the retention funnel
-long enough to convert, and what keeps the discovery algorithm feeding the game.
+Workers are managed from the computer on the player's plot:
 
-The highest-value single SKU is the **Starter Pack**: one-time, 24-hour window, shown at the
-end of the first session, priced to be obviously worth it.
+- **Stocker** transfers authoritative carry/drop-off inventory into the refrigerator.
+- **Cashier** processes the register queue while enabled.
+- **Hunter** produces meat through the same configured hunting economy and deposits it at a
+  defined drop-off; it does not mint cash directly.
 
-## 9. Retention
+At least one worker must be reachable before rebirth. Workers cost normal currency, have clear
+on/off state, and operate through the same service APIs as players. Rebirth can add slots,
+speed, yield, or worker tiers, but it cannot gate the feature that defines the management
+fantasy.
 
-- **Season pass** — 4-week seasons, 30 tiers, free + premium tracks. The backbone.
-- **Daily ladder** (28 days) + **3 daily / 3 weekly quests** + **playtime chests**
-- **Rebirth** at Zone 5 + max upgrades: `+25%` permanent, uncapped, stacks with everything
-- **Companion Index** completion milestones at 25/50/75/100%
-- **Weekend events** — Blizzard (2x drops), Aurora Storm (2x luck)
-- **Limited Eggs** — 7-day windows, then permanently retired
-- **AFK Camp** — idle earning at ~15% rate, because session length feeds discovery
-- **Social** — group reward, friend-play bonus, global leaderboard, codes
+## 8. Authority and failure behavior
 
-Full ladder in `docs/MONETIZATION.md` §6.
+- Carry contents, refrigerator stock, customer reservations, checkout value, and unclaimed
+  cash are server-owned.
+- Visual meat, customers, and cash piles project server state; deleting or moving a visual
+  never changes the ledger.
+- Stock is reserved before a customer takes it. Cancelled customers return their reservation.
+- Checkout moves value into `unclaimedCash`; it does not immediately award spendable cash.
+- Only proximity collection calls `CurrencyService.Award`.
+- Unclaimed cash and refrigerator stock persist across leave/rejoin. The game must never erase
+  earned value because a server closes.
+- If a profile unloads, every service stops acting for that player and releases session-only
+  reservations safely.
 
-## 10. Out of scope (say no to these)
+## 9. First-session shape
 
-Trading. PvP. Base building. Crafting. Weather survival/temperature meter. Vehicles. A second
-hard currency. Anything that adds a system the multiplier stack doesn't feed.
+The corrected vertical slice must teach the real game without menus explaining it:
 
-That last clause is the test. Companions earned their way in because they multiply the core
-loop; a crafting tree wouldn't. The bet is still that the loop is tight and the game looks
-unlike everything else on the platform — every feature has to serve one of those two.
+1. Assign a plot and show the refrigerator, register, and wilderness route.
+2. Let the player feel Auto-Swing during its existing trial.
+3. Kill a nearby starter creature and visibly load the carrier.
+4. Guide the player home when the carrier is useful or full.
+5. Auto-unload into the refrigerator.
+6. Spawn a customer who takes meat and queues.
+7. Teach the player to stand at the register.
+8. Place cash on the counter and magnet it to the player on approach.
+9. Offer the first meaningful axe, carrier, refrigerator, or register upgrade.
+10. Introduce the worker computer only after the manual loop has been completed once.
+
+The first collected store sale remains a release-blocking funnel event. Exact timing and costs
+belong to ECONOMY.md and must be measured in Studio.
+
+## 10. Feel targets
+
+These interactions carry more product value than additional zones:
+
+- Axe hits have a readable wind-up, contact snap, creature flash, impact sound, and restrained
+  hitstop.
+- Meat arcs into the carrier and visibly builds a stack without creating one Instance per
+  inventory unit.
+- Unloading sends a short stream of pieces from the player's back to the refrigerator.
+- Customers communicate intent through movement and carried items, not text-heavy dialogs.
+- Register processing has a visible progress response and a satisfying completion beat.
+- Counter cash forms a readable pile, then behaves like collectible studs: anticipation,
+  magnet pull, accelerating flight, arrival tick, and count-up.
+- Every automatic interaction has an obvious zone and immediate feedback. No hidden waiting.
+- Full carrier, full refrigerator, empty stock, blocked queue, and disabled worker states are
+  legible in the world and HUD.
+
+## 11. Content safety and tone
+
+The setting is a fictional Arctic frontier, not a depiction of a real Indigenous culture.
+Frost bears are fantasy creatures rather than real polar bears. Hunting is stylized and
+non-graphic: blocky meat pieces, impact chunks, no blood or gore.
+
+The visual language remains chunky, studded Roblox construction with a restrained snowy
+palette. Shops should feel handmade and warm against the wilderness, using timber, metal,
+canvas, lamps, and refrigeration equipment.
+
+## 12. Scope order
+
+### Corrected vertical slice
+
+Eight assignable plots, one shared hunting area, one creature tier, one axe, visible carrying,
+refrigerator stocking, one customer behavior, player-operated register, persistent counter
+cash, proximity collection, core upgrades, save/rejoin, and one worker proof.
+
+### After the slice proves fun
+
+More store layouts, customer types, creature regions, workers, upgrade visuals, rare meat,
+cosmetics, companions, events, rebirth, and additional monetization.
+
+### Explicitly out of scope for the slice
+
+PvP, trading, vehicles, temperature survival, free-form base building, crafting trees, five
+separate progression zones, a large SKU catalog, and any Auto-Sell mechanic that bypasses the
+store.
