@@ -26,11 +26,10 @@ tap-per-swing.
 
 ## Current contract status
 
-D-017 approves the corrected game. The checked-in shared Luau modules still implement the
-legacy v1 sell-pad contract. Corrected-slice feature work is blocked until job `F5` atomically
-lands the v2 shared contract and profile migration.
+D-017 approves the corrected game. F5's v2 shared contract/profile migration and A15's
+canonical state replication have landed. A16 carry inventory is the next server dependency.
 
-Existing Data, Currency, Creature, Combat, State, Upgrade, Analytics, Net, and UI foundations
+Existing Data, Currency, Creature, Combat, State, Upgrade, Analytics, Net, and React UI foundations
 are reused where their new packets say so. SellService, the trader, harpoon ToolService work,
 and five-zone-first progression are not part of the corrected slice.
 
@@ -55,9 +54,15 @@ Files are authoritative; Studio verifies.
 
 ```bash
 rokit install
+wally install
 rojo serve
 ./scripts/check.sh
 rojo build -o Hunt.rbxlx
 ```
+
+The UI uses React Lua under `src/client/UI/`. UI Labs discovers
+`UI.Stories.Frostline.storybook` after `wally install`; install the
+[UI Labs plugin](https://create.roblox.com/store/asset/14293316215) to preview components
+without starting a full play session.
 
 Never edit synced scripts in Studio; Rojo overwrites them.

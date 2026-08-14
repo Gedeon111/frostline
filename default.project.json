@@ -8,6 +8,12 @@
       },
       "Remotes": {
         "$className": "Folder"
+      },
+      "Packages": {
+        "$path": "Packages"
+      },
+      "DevPackages": {
+        "$path": "DevPackages"
       }
     },
     "ServerScriptService": {

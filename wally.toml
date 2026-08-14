@@ -1,0 +1,18 @@
+[package]
+name = "frostline/frostline"
+version = "0.1.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+license = "MIT"
+
+# React Lua — Roblox's official React 17 port (D-011).
+# Pinned exactly: version drift between workers is the risk D-002 named, and
+# pinning is how we answer it rather than by banning the dependency.
+[dependencies]
+React = "jsdotlua/react@17.2.0"
+ReactRoblox = "jsdotlua/react-roblox@17.2.0"
+
+# UI Labs is the storybook runtime. Dev-only — no game code ever requires it,
+# so it stays out of the shipped Packages tree.
+[dev-dependencies]
+UILabs = "pepeeltoro41/ui-labs@2.3.2"
