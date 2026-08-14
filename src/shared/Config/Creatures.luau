@@ -1,15 +1,13 @@
 --!strict
 --[[
-	CREATURES — source: docs/ECONOMY.md §1, tints/scale from docs/ART_BIBLE.md §4.
+	CREATURES — server combat/spawn definitions.
 
-	The column that actually matters is cash-per-weight (value*drops / weight*drops,
-	i.e. meatValue/meatWeight). It rises ~3x per tier, and that is the real
-	progression curve — a trip in Black Ice is worth ~60x a trip in Shelf Ice at
-	the same pack size. ECONOMY §7 rule 1 requires >= 2.5x per tier; below that a
-	new zone doesn't feel like an upgrade. Tests assert it (E1).
+	Each tier points to a Config.Meat id. Legacy meatWeight/meatValue fields stay
+	until A19 moves all inventory valuation to Config.Meat.
 ]]
 
 local Types = require(script.Parent.Parent.Types)
+local Palette = require(script.Parent.Palette)
 
 local Creatures = {}
 
@@ -19,83 +17,77 @@ Creatures.Tiers = {
 		displayName = "Snow Cub",
 		hp = 30,
 		dropCount = 2,
+		meatId = "snow_cub",
 		meatWeight = 2,
-		meatValue = 5,            -- 2.5 cash/weight
+		meatValue = 5,
 		respawnSeconds = 8,
 		modelName = "snow_cub",
 		shoulderHeight = 4,
-		tint = Color3.fromHex("E8E2D4"),   -- bone
+		tint = Palette.bone,
 	} :: Types.CreatureTier,
-
 	frost_bear = {
 		id = "frost_bear",
 		displayName = "Frost Bear",
 		hp = 120,
 		dropCount = 3,
+		meatId = "frost_bear",
 		meatWeight = 3,
-		meatValue = 19,           -- 6.33 cash/weight (2.53x tier 1 — see note below)
+		meatValue = 19,
 		respawnSeconds = 8,
 		modelName = "frost_bear",
 		shoulderHeight = 6,
-		tint = Color3.fromHex("DCE6EC"),
+		tint = Palette.snowShadow,
 	} :: Types.CreatureTier,
-
 	ice_bear = {
 		id = "ice_bear",
 		displayName = "Ice Bear",
 		hp = 450,
 		dropCount = 4,
+		meatId = "ice_bear",
 		meatWeight = 4,
-		meatValue = 65,           -- 16.3
+		meatValue = 65,
 		respawnSeconds = 15,
 		modelName = "ice_bear",
 		shoulderHeight = 8,
-		tint = Color3.fromHex("B8D4E4"),
+		tint = Palette.ice,
 	} :: Types.CreatureTier,
-
 	aurora_bear = {
 		id = "aurora_bear",
 		displayName = "Aurora Bear",
 		hp = 1800,
 		dropCount = 5,
+		meatId = "aurora_bear",
 		meatWeight = 5,
-		meatValue = 240,          -- 48.0
+		meatValue = 240,
 		respawnSeconds = 15,
 		modelName = "aurora_bear",
 		shoulderHeight = 11,
-		tint = Color3.fromHex("9FD8C4"),
+		tint = Palette.aurora,
 	} :: Types.CreatureTier,
-
 	titan_bear = {
 		id = "titan_bear",
 		displayName = "Titan Bear",
 		hp = 7500,
 		dropCount = 6,
+		meatId = "titan_bear",
 		meatWeight = 6,
-		meatValue = 900,          -- 150.0
+		meatValue = 900,
 		respawnSeconds = 25,
 		modelName = "titan_bear",
 		shoulderHeight = 14,
-		tint = Color3.fromHex("3A3F4A"),
+		tint = Palette.night,
 	} :: Types.CreatureTier,
 }
 
--- Tier order, low to high. Zones reference tiers by id; this is for tests and UI.
 Creatures.Order = { "snow_cub", "frost_bear", "ice_bear", "aurora_bear", "titan_bear" }
 
---[[
-	Variants (M2, job A9). Rolled per spawn.
-
-	Golden is the screenshot moment and the reason someone posts about the game.
-	A9 must guarantee at least one per zone within a reasonable window rather than
-	rolling raw 2% — pure chance produces dry spells that players read as a bug.
-]]
 Creatures.Variants = {
 	golden = {
 		id = "golden",
 		chance = 0.02,
 		valueMultiplier = 10,
-		tint = Color3.fromHex("F2B035"),   -- gold
+		meatSuffix = "_golden",
+		tint = Palette.gold,
 		emissive = true,
 	} :: Types.CreatureVariant,
 }
@@ -104,23 +96,44 @@ function Creatures.Get(tierId: string): Types.CreatureTier?
 	return (Creatures.Tiers :: any)[tierId]
 end
 
--- The progression curve, exposed so tests and tuning don't recompute it.
+function Creatures.MeatIdFor(tierId: string, variant: string?): string?
+	local tier = Creatures.Get(tierId)
+	if not tier then
+		return nil
+	end
+	if not variant then
+		return tier.meatId
+	end
+	local variantDef = (Creatures.Variants :: any)[variant]
+	if not variantDef then
+		return nil
+	end
+	return tier.meatId .. variantDef.meatSuffix
+end
+
+-- Legacy helpers retained through A19.
 function Creatures.CashPerWeight(tierId: string): number
-	local t = Creatures.Get(tierId)
-	if not t then return 0 end
-	return t.meatValue / t.meatWeight
+	local tier = Creatures.Get(tierId)
+	if not tier then
+		return 0
+	end
+	return tier.meatValue / tier.meatWeight
 end
 
 function Creatures.CashPerKill(tierId: string): number
-	local t = Creatures.Get(tierId)
-	if not t then return 0 end
-	return t.meatValue * t.dropCount
+	local tier = Creatures.Get(tierId)
+	if not tier then
+		return 0
+	end
+	return tier.meatValue * tier.dropCount
 end
 
 function Creatures.WeightPerKill(tierId: string): number
-	local t = Creatures.Get(tierId)
-	if not t then return 0 end
-	return t.meatWeight * t.dropCount
+	local tier = Creatures.Get(tierId)
+	if not tier then
+		return 0
+	end
+	return tier.meatWeight * tier.dropCount
 end
 
 return Creatures

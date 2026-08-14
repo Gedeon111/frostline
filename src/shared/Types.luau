@@ -1,39 +1,69 @@
 --!strict
 --[[
-	TYPES — the shared vocabulary. FROZEN (docs/ARCHITECTURE.md).
+	TYPES — FROSTLINE's shared vocabulary.
 
-	Import these, never redefine them locally. If two modules describe the same
-	shape with two definitions, they will drift, and the drift shows up as a
-	runtime bug rather than a type error.
-
-		local Types = require(ReplicatedStorage.Shared.Types)
-		local function pay(player: Player, pack: Types.PackContents) ... end
-
-	Changing anything here requires an RFC in docs/DECISIONS.md.
+	D-017 makes the store contract canonical. Legacy upgrade/profile names remain
+	typed only as a temporary boot bridge for services explicitly scheduled for
+	A15/A16/A19/A20/A21. New code uses ActiveUpgradeTrack and the v2 state fields.
 ]]
 
 -- ─── Content ────────────────────────────────────────────────────────────────
 
-export type BonusType = "cash" | "damage" | "luck"
-export type UpgradeTrack = "pack" | "boots" | "harpoon"
+export type MeatId = string
+export type MeatContents = { [MeatId]: number }
+export type PackContents = MeatContents -- temporary v1 source compatibility
+
+export type ActiveUpgradeTrack = "axe" | "carrier" | "fridge" | "register"
+export type LegacyUpgradeTrack = "pack" | "boots" | "harpoon"
+export type UpgradeTrack = ActiveUpgradeTrack | LegacyUpgradeTrack
+
+export type WorkerId = "stocker" | "cashier" | "hunter"
+export type WorkerAction = "unlock" | "upgrade" | "enable" | "disable" | "toggle"
+export type CustomerState =
+	"enter"
+	| "seek_stock"
+	| "reserve"
+	| "take"
+	| "queue"
+	| "checkout"
+	| "leave"
+	| "cancelled"
+
+export type NotifyKind = "cash" | "success" | "error" | "full" | "guidance"
+export type CarryFeedbackKind = "pickup" | "unload"
+export type StoreFeedbackKind = "stock_taken" | "checkout" | "cash_spawned" | "cash_collected"
+
+export type MeatDef = {
+	id: MeatId,
+	displayName: string,
+	creatureTier: string,
+	variant: string?,
+	weight: number,
+	unitValue: number,
+	modelName: string,
+	tint: Color3,
+}
 
 export type CreatureTier = {
 	id: string,
 	displayName: string,
 	hp: number,
-	dropCount: number,      -- meat items per kill
-	meatWeight: number,     -- weight per item, against pack capacity
-	meatValue: number,      -- cash per item, before multipliers
+	dropCount: number,
+	meatId: MeatId,
+	-- Temporary v1 fields. A19 moves all weight/value lookup to Config.Meat.
+	meatWeight: number,
+	meatValue: number,
 	respawnSeconds: number,
-	modelName: string,      -- ReplicatedStorage.Assets.Creatures.<modelName>
-	shoulderHeight: number, -- studs, for placeholder generation + scale checks
+	modelName: string,
+	shoulderHeight: number,
 	tint: Color3,
 }
 
 export type CreatureVariant = {
 	id: string,
-	chance: number,         -- 0..1
+	chance: number,
 	valueMultiplier: number,
+	meatSuffix: string,
 	tint: Color3,
 	emissive: boolean,
 }
@@ -46,16 +76,14 @@ export type ZoneLighting = {
 	FogColor: Color3,
 }
 
+-- Legacy-only until A19 retires Config.Zones.
 export type ZoneDef = {
 	id: string,
 	displayName: string,
-	order: number,          -- 1..5, unlock sequence. Cannot be skipped.
+	order: number,
 	unlockCost: number,
 	creatureTier: string,
 	population: number,
-	-- Instance NAMES under Workspace.World.<id>. The contract between whoever
-	-- builds the zone and the code that reads it (ARCHITECTURE §7). Renaming one
-	-- in Studio silently breaks a service, so it needs an RFC like any contract.
 	spawnRegion: string,
 	sellPads: { string },
 	barrier: string,
@@ -63,18 +91,18 @@ export type ZoneDef = {
 }
 
 export type UpgradeDef = {
-	id: UpgradeTrack,
+	id: string,
 	displayName: string,
-	unit: string,           -- shown in UI: "weight", "studs/s", "dmg"
+	unit: string,
 	maxLevel: number,
-	values: { number },      -- [level] -> effect value. #values == maxLevel
-	costs: { number },       -- [n] -> cost to reach level n+1. #costs == maxLevel-1
+	values: { number },
+	costs: { number },
 }
 
 export type ToolDef = {
 	id: string,
 	displayName: string,
-	minLevel: number,       -- harpoon upgrade level this model appears at
+	minLevel: number,
 	modelName: string,
 }
 
@@ -84,60 +112,99 @@ export type ProductDef = {
 	id: string,
 	displayName: string,
 	kind: ProductKind,
-	assetId: number,        -- 0 until P5 creates it on the dashboard
+	assetId: number,
 	robux: number,
-	effect: string,         -- machine-readable key MonetizationService switches on
+	effect: string,
 	amount: number?,
 	description: string,
 }
 
+export type WorkerLevelDef = {
+	cycleSeconds: number,
+	unitsPerCycle: number,
+	upgradeCost: number?,
+}
+
+export type WorkerDef = {
+	id: WorkerId,
+	displayName: string,
+	unlockCost: number,
+	levels: { WorkerLevelDef },
+}
+
 -- ─── Player state ───────────────────────────────────────────────────────────
 
-export type PackContents = { [string]: number }  -- tierId -> count
-
 export type UpgradeLevels = {
-	pack: number,
-	boots: number,
-	harpoon: number,
+	axe: number,
+	carrier: number,
+	fridge: number,
+	register: number,
+	-- Temporary v1 fields removed after A15/A16/A20/A21.
+	pack: number?,
+	boots: number?,
+	harpoon: number?,
+}
+
+export type WorkerProgress = {
+	unlocked: boolean,
+	level: number,
+	enabled: boolean,
+}
+
+export type WorkerStates = {
+	stocker: WorkerProgress,
+	cashier: WorkerProgress,
+	hunter: WorkerProgress,
 }
 
 export type MultiplierBreakdown = {
-	companions: number,
 	gamepass: number,
 	rebirth: number,
-	boost: number,
-	event: number,
-	season: number,
-	total: number,          -- the product, clamped to GameConfig.MaxMultiplier
+	total: number,
 }
 
--- What the client is allowed to know. Anything absent here stays server-side.
 export type PlayerState = {
 	cash: number,
-	pack: PackContents,
-	packWeight: number,
-	packCapacity: number,
+	carry: MeatContents,
+	carryWeight: number,
+	carryCapacity: number,
+	fridge: MeatContents,
+	fridgeWeight: number,
+	fridgeCapacity: number,
+	unclaimedCash: number,
 	upgrades: UpgradeLevels,
-	unlockedZones: { [string]: boolean },
+	workers: WorkerStates,
+	plotId: string?,
 	rebirths: number,
+	autoSwing: boolean,
+	autoSwingTrialEndsAt: number,
+	autoSwingEnabled: boolean,
+	reducedEffects: boolean,
 	multiplierBreakdown: MultiplierBreakdown,
+
+	-- Temporary v1 replication fields. A15 removes them.
+	pack: PackContents?,
+	packWeight: number?,
+	packCapacity: number?,
+	unlockedZones: { [string]: boolean }?,
 }
 
 -- ─── Results ────────────────────────────────────────────────────────────────
 
--- Typed refusal reasons. The client maps these to copy; it must never invent
--- its own, or two surfaces end up explaining the same failure differently.
 export type RefusalReason =
 	"insufficient_funds"
 	| "max_level"
 	| "unknown_track"
-	| "unknown_zone"
-	| "zone_locked"
-	| "out_of_order"
-	| "already_owned"
-	| "pack_full"
-	| "pack_empty"
-	| "not_at_sell_pad"
+	| "unknown_worker"
+	| "invalid_action"
+	| "invalid"
+	| "already_unlocked"
+	| "not_unlocked"
+	| "not_owner"
+	| "capacity_full"
+	| "inventory_empty"
+	| "no_stock"
+	| "queue_empty"
 	| "rate_limited"
 	| "not_loaded"
 

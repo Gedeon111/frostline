@@ -51,7 +51,7 @@ Next order:
 
 | ID | Job | Owner | Depends | Status |
 |---|---|---|---|---|
-| F5 | V2 contracts, configs, profile template/migration, contract tests | Architect + Server | D-017 | TODO |
+| F5 | V2 contracts, configs, profile template/migration, contract tests | Architect + Server | D-017 | DONE |
 
 ## M1 · Corrected vertical slice
 
@@ -67,7 +67,7 @@ Target: eight assignable plots and one complete player-owned-store loop with sav
 | A18 | StoreInventoryService fridge/reservations | `StoreInventoryService.luau` | F5, A16, A21 | TODO |
 | A19 | CreatureService meat-id/shared-ground adaptation | `CreatureService.luau` | F5, C9 | TODO |
 | A20 | CombatService axe-track adaptation | `CombatService.luau` | F5, A19, A21 | TODO |
-| A21 | UpgradeService v2 tracks | `UpgradeService.luau` | F5 | TODO |
+| A21 | UpgradeService v2 tracks | `UpgradeService.luau` | F5 | DONE (folded into F5) |
 | A22 | CustomerService state machine | `CustomerService.luau` | A17, A18, C10 | TODO |
 | A23 | RegisterService checkout/ledger | `RegisterService.luau` | A17, A18, A21, A22 | TODO |
 | A24 | CashPickupService ledger projection/collection | `CashPickupService.luau` | A17, A23 | TODO |

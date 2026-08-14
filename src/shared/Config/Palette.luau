@@ -1,32 +1,22 @@
 --!strict
 --[[
-	PALETTE — the nine colours of FROSTLINE. Source: docs/ART_BIBLE.md §2.
+	PALETTE — the D-017 Arctic wilderness and store palette.
 
-	THE ONLY PLACE A WORLD COLOUR IS DEFINED. A `Color3.fromRGB` or `fromHex`
-	anywhere outside this file is the same defect as a literal 0.6 in a service:
-	it is a design value hiding where the designer cannot find it.
-
-	D-014 traded away the restrained *geometry* and kept the restrained *colour*,
-	which makes this table load-bearing in a way it was not before. A studded
-	blocky game in these nine colours is a distinct object; the same game in
-	saturated primaries is one of ten thousand. **Adding a colour here needs an
-	RFC** (WORKFLOW §3) — that is not ceremony, it is the differentiator.
-
-	`Theme.luau` (C1) is deliberately separate and NOT governed by this file: it
-	holds the Figma-derived UI kit, whose colours are baked into uploaded artwork
-	and cannot be retinted from here. D-014 flags the divergence as a C1 handoff.
+	World colours are defined here so art can be tuned without hunting through
+	services and controllers.
 ]]
 
-local Palette = {
-	snow = Color3.fromHex("F2F6F8"),       -- ground, primary surfaces
-	snowShadow = Color3.fromHex("C9D6DE"), -- ambient shadow, secondary surfaces
-	ice = Color3.fromHex("7FB2C9"),        -- ice walls, glass, water
-	iceDeep = Color3.fromHex("2E5C73"),    -- crevasses, depth
-	night = Color3.fromHex("101820"),      -- Black Ice ground, UI background
-	bone = Color3.fromHex("E8E2D4"),       -- bear fur base, trader parka trim
-	blood = Color3.fromHex("C4392E"),      -- meat, damage flash, pack-full, accent
-	gold = Color3.fromHex("F2B035"),       -- cash, golden variant, affordable
-	aurora = Color3.fromHex("4FE0A8"),     -- Aurora Basin accent, unlock success
+return {
+	snow = Color3.fromHex("F2F6F8"),
+	snowShadow = Color3.fromHex("C9D6DE"),
+	ice = Color3.fromHex("7FB2C9"),
+	iceDeep = Color3.fromHex("2E5C73"),
+	night = Color3.fromHex("101820"),
+	bone = Color3.fromHex("E8E2D4"),
+	blood = Color3.fromHex("C4392E"),
+	gold = Color3.fromHex("F2B035"),
+	aurora = Color3.fromHex("4FE0A8"),
+	timber = Color3.fromHex("7A5230"),
+	timberDark = Color3.fromHex("493321"),
+	lamp = Color3.fromHex("FFD27A"),
 }
-
-return Palette

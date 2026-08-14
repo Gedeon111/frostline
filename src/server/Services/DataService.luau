@@ -30,7 +30,7 @@ local DataStoreService = game:GetService("DataStoreService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConfig = require(Shared.Config.GameConfig)
-local Zones = require(Shared.Config.Zones)
+local ProfileSchema = require(Shared.ProfileSchema)
 local Signal = require(Shared.Util.Signal)
 local Format = require(Shared.Util.Format)
 local Log = require(Shared.Util.Log)
@@ -42,83 +42,10 @@ local DataService = {}
 -- join time connect to this rather than polling GetData.
 DataService.Loaded = Signal.new()
 
--- ── Template — ARCHITECTURE §4 ──────────────────────────────────────────────
--- Adding a field here is free: Reconcile() fills it in for existing players on
--- their next load. Removing or renaming one is not — that needs a migration.
+-- ── Template and migrations — ARCHITECTURE §4 ──────────────────────────────
 
-local TEMPLATE = {
-	version = 1,
-	cash = 0,
-	totalCashEarned = 0,
-	pack = {},
-	upgrades = { pack = 1, boots = 1, harpoon = 1 },
-	unlockedZones = { [Zones.StartingZone] = true },
-	rebirths = 0,
-
-	-- Growth track (G) — populated by G2's schema RFC.
-	companions = {},
-	equipped = {},
-	indexClaimed = {},
-	eggStats = { hatches = 0, byEgg = {} },
-	quests = { daily = {}, weekly = {}, dailyResetAt = 0, weeklyResetAt = 0 },
-	season = { id = "", xp = 0, tier = 0, premium = false, claimed = {} },
-	boosts = {}, -- [boostId] = expiresAt. A TIMESTAMP, never remaining time —
-	             -- remaining time is wrong the instant a player rejoins.
-	offers = { starterShownAt = 0, starterPurchased = false, dealsSeed = 0 },
-	social = { groupClaimed = false },
-
-	-- Onboarding milestones already fired, keyed by step name (D-012). MUST be
-	-- persisted: a session-scoped guard re-fires every milestone on rejoin and
-	-- the funnel becomes a measure of how often people rejoin.
-	funnelSteps = {},
-
-	stats = { kills = 0, sells = 0, playtimeSeconds = 0, goldenKills = 0 },
-	-- autoSwing is a PREFERENCE, never an entitlement (D-016). It records that the
-	-- player WANTS auto-swing; whether they may have it is derived server-side
-	-- from the trial window and pass ownership. Defaults true so the trial is
-	-- running from the first second, which is the entire point of a trial.
-	settings = { music = true, sfx = true, reducedEffects = false, autoSwing = true },
-	claims = { lastDailyAt = 0, dailyStreak = 0, redeemedCodes = {} },
-	receipts = {},
-	firstJoinAt = 0,
-	lastJoinAt = 0,
-}
-
-export type ProfileData = typeof(TEMPLATE)
-
--- ── Migrations ──────────────────────────────────────────────────────────────
---[[
-	Keyed by the version being migrated FROM. Empty today — the mechanism exists
-	now because retrofitting migrations onto a live game with real players is
-	miserable, and by then every mistake is permanent.
-
-		[1] = function(data) data.newThing = data.oldThing; data.oldThing = nil end,
-]]
-local MIGRATIONS: { [number]: (any) -> () } = {}
-
-local function migrate(data: any, key: string)
-	local guard = 0
-	while (data.version or 1) < GameConfig.ProfileVersion do
-		local step = MIGRATIONS[data.version]
-		if not step then
-			Log.warn("Data", "no migration from v%d for %s — leaving as is", data.version, key)
-			return
-		end
-		local ok, err = pcall(step, data)
-		if not ok then
-			Log.error("Data", "migration v%d failed for %s: %s", data.version, key, tostring(err))
-			return
-		end
-		data.version += 1
-
-		guard += 1
-		if guard > 50 then
-			-- A migration that forgets to bump version would spin forever.
-			Log.error("Data", "migration loop guard tripped for %s", key)
-			return
-		end
-	end
-end
+local TEMPLATE = ProfileSchema.Template
+export type ProfileData = ProfileSchema.ProfileData
 
 -- ── Store ───────────────────────────────────────────────────────────────────
 
@@ -189,8 +116,13 @@ local function onPlayerAdded(player: Player)
 	end
 
 	profile:AddUserId(player.UserId) -- GDPR: ties the key to the account
-	profile:Reconcile() -- fills in fields added to TEMPLATE since their last load
-	migrate(profile.Data, profile.Key)
+	local prepared, migrationError = ProfileSchema.Prepare(profile.Data)
+	if not prepared then
+		Log.error("Data", "profile migration failed for %s: %s", profile.Key, tostring(migrationError))
+		profile:EndSession()
+		player:Kick("Could not update your data. Please rejoin.")
+		return
+	end
 
 	profile.OnSessionEnd:Connect(function()
 		profiles[player] = nil
@@ -230,7 +162,7 @@ end
 function DataService.GetData(player: Player): ProfileData?
 	local profile = profiles[player]
 	if profile and profile:IsActive() then
-		return profile.Data
+		return profile.Data :: ProfileData
 	end
 	return nil
 end
@@ -291,7 +223,7 @@ function DataService.Start()
 	-- has to remember to notify us; 1Hz across 20 players is free.
 	task.spawn(function()
 		while true do
-			task.wait(1)
+			task.wait(GameConfig.LeaderstatsRefreshSeconds)
 			for player, profile in pairs(profiles) do
 				local stats = player:FindFirstChild("leaderstats")
 				local cash = stats and stats:FindFirstChild("Cash")

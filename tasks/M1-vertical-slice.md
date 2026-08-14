@@ -18,6 +18,11 @@ Instance; run static checks, relevant tests, and Studio verification.
 **You own:** `src/shared/**`, `src/server/Services/DataService.luau`,
 `tests/contracts/**`
 
+**Atomic transition additions:** `SellService.luau` and `ZoneService.luau` are retired
+no-op modules so removed remotes cannot leave bootstrap registrations or cash routes.
+`UpgradeService.luau` (A21), `tests/RunAll.luau`, and `tests/economy.spec.luau` are folded
+in so v2 tracks are safe and the repository's existing test entry point runs v2 contracts.
+
 **Build:**
 
 - Replace v1 Types/Remotes/config with the v2 target in ARCHITECTURE.
@@ -61,6 +66,8 @@ state without a rejoin.
 ---
 
 ### [A21] UpgradeService v2 tracks
+
+**Status:** DONE, folded into F5's atomic contract transition.
 
 **Owner:** Server · **Depends on:** F5
 
