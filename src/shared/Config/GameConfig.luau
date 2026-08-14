@@ -16,6 +16,24 @@ return {
 	HitstopSeconds = 0.04,      -- client-side only, cosmetic
 	FeedbackRadius = 120,       -- studs; CombatFeedback goes to nearby players only
 
+	-- ── Hitbox combat (D-015) ──
+	-- There is no prompt. A box is carried in front of the character and every
+	-- live creature inside it is struck once per SwingCooldown.
+	--
+	-- The SERVER rebuilds this box from the character's own CFrame and picks the
+	-- victims itself. The client nominates one creature purely to say "I am
+	-- swinging, and here is roughly what at" — it never supplies the list, so a
+	-- crafted client cannot widen its own cleave.
+	HitboxSize = Vector3.new(12, 8, 14),  -- studs, W x H x D
+	HitboxForwardOffset = 7,              -- studs ahead of HumanoidRootPart
+	MaxCleaveTargets = 8,                 -- bound on one swing. See ECONOMY note in D-015.
+
+	-- ── Auto-swing trial (D-016) ──
+	-- Free auto-swing for this long after a player's FIRST EVER join, then the
+	-- `autoswing` gamepass is required. Wall-clock from `firstJoinAt`, not
+	-- playtime — deliberate, see D-016. Default swinging is tap-per-swing.
+	AutoSwingTrialSeconds = 600,
+
 	-- ── Movement ──
 	BaseWalkSpeed = 16,
 	MaxWalkSpeed = 28,          -- hard ceiling; above this the camera feels loose
@@ -48,6 +66,9 @@ return {
 		RequestFuse = { budget = 4, perSeconds = 1 },
 		RequestClaim = { budget = 6, perSeconds = 1 },
 		RequestOffer = { budget = 3, perSeconds = 1 },
+		-- Toggling is a deliberate human action; 4/s is generous for a button and
+		-- still stops a loop from writing the profile every frame.
+		RequestSetting = { budget = 4, perSeconds = 1 },
 		_default = { budget = 5, perSeconds = 1 },
 	},
 

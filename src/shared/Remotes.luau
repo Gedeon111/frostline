@@ -92,6 +92,14 @@ Remotes.Functions = {
 	-- (kind: "daily"|"quest"|"season"|"index", id: string) -> (ok, reward?, reason?)
 	-- earned; unclaimed; window valid per SERVER os.time.
 	RequestClaim = "RemoteFunction",
+
+	-- (key: string, value: boolean) -> (ok, reason?)                 [D-016]
+	-- key is on the server's settable allow-list; value is a boolean. Settings
+	-- are preferences, never entitlements — writing `autoSwing = true` records
+	-- that the player WANTS auto-swing, and grants nothing. Whether it is
+	-- actually active is derived server-side from the trial window and pass
+	-- ownership, and replicated separately.
+	RequestSetting = "RemoteFunction",
 }
 
 -- Flat name -> class, for Net to iterate at boot.

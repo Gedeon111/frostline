@@ -76,6 +76,54 @@ local function getTemplate(tier: any): Model?
 	return (base and base:IsA("Model")) and base or nil
 end
 
+--[[
+	Parts whose top edge counts as "the shoulder", most specific first.
+
+	`bear_base` is a Roblox-style rig, so UpperTorso is the real reference.
+	Torso covers R6-style rigs and Body covers simple Part assemblies.
+]]
+local SHOULDER_PARTS = { "UpperTorso", "Torso", "Body" }
+
+-- How far up and down to probe for ground at a spawn point. Not a gameplay
+-- number — it only bounds the search, and 200 studs covers any plausible gap
+-- between a SpawnZone marker and the terrain under it.
+local GROUND_PROBE = 200
+
+--[[
+	The template's authored shoulder height, in studs.
+
+	`Config.Creatures.shoulderHeight` means height AT THE SHOULDER, not total
+	height. On a quadruped the head sits well above the shoulder, so dividing by
+	the bounding box (which is what this used to do) leaves every creature short
+	— measured at ~30% for snow_cub — and the error grows with tier, because it
+	is proportional. titan_bear was arriving under 10 studs against a spec of 14.
+
+	Falls back to total height when no recognised torso exists, so a future
+	template with an unknown bone layout still spawns at a sane size instead of
+	erroring or spawning at zero.
+]]
+local function authoredShoulderHeight(model: Model): number
+	local lowest = math.huge
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			lowest = math.min(lowest, d.Position.Y - d.Size.Y * 0.5)
+		end
+	end
+	if lowest == math.huge then
+		return 0
+	end
+
+	for _, name in ipairs(SHOULDER_PARTS) do
+		local part = model:FindFirstChild(name, true)
+		if part and part:IsA("BasePart") then
+			return (part.Position.Y + part.Size.Y * 0.5) - lowest
+		end
+	end
+
+	local _, size = model:GetBoundingBox()
+	return size.Y
+end
+
 local function buildPlaceholder(tier: any): Model
 	local model = Instance.new("Model")
 	model.Name = tier.modelName
@@ -134,11 +182,20 @@ local function spawnOne(tierId: string, zoneId: string, position: Vector3): Mode
 	local model: Model
 	if template then
 		model = template:Clone()
-		-- Scale the shared base to this tier's size. ScaleTo handles Motor6D
-		-- rigs, so the animations keep working at any scale.
-		local _, size = model:GetBoundingBox()
-		if size.Y > 0 then
-			model:ScaleTo(tier.shoulderHeight / size.Y)
+		-- Scale the shared base so its SHOULDER lands on the tier's
+		-- shoulderHeight. ScaleTo handles Motor6D rigs, so animations keep
+		-- working at any scale.
+		--[[
+			ScaleTo sets scale ABSOLUTELY (1 = as authored), but the measurement
+			below is taken at the template's CURRENT scale. If a template was
+			saved at anything other than 1 — bear_base is at ~1.29 — dividing the
+			target by the measured shoulder lands at `target / currentScale`
+			instead of `target`. Multiplying the current scale back in cancels it,
+			and the expression is correct for a template at scale 1 too.
+		]]
+		local shoulder = authoredShoulderHeight(model)
+		if shoulder > 0 then
+			model:ScaleTo(model:GetScale() * (tier.shoulderHeight / shoulder))
 		end
 	else
 		model = buildPlaceholder(tier)
@@ -163,7 +220,40 @@ local function spawnOne(tierId: string, zoneId: string, position: Vector3): Mode
 	end
 
 	if model.PrimaryPart then
-		model:PivotTo(CFrame.new(position + Vector3.new(0, tier.shoulderHeight * 0.5, 0)))
+		--[[
+			Sit the model ON the ground rather than guessing at half its height.
+
+			This used to offset by `shoulderHeight * 0.5` as a stand-in for half
+			the model height. Those are different numbers for any rig whose head
+			clears its shoulder, and they diverged further once scaling was
+			corrected — leaving creatures either buried or hovering. Measuring the
+			actual gap between the pivot and the lowest part is exact and works
+			for any template.
+		]]
+		-- Find the real ground. `sampleSpawnPoint` samples inside the SpawnZone
+		-- volume, so its Y is the marker part's, not the terrain's — trusting it
+		-- directly buried creatures by ~0.8 studs on the current map.
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { folder }
+		local hit = workspace:Raycast(
+			position + Vector3.new(0, GROUND_PROBE, 0),
+			Vector3.new(0, -GROUND_PROBE * 2, 0),
+			params
+		)
+		local groundY = if hit then hit.Position.Y else position.Y
+
+		model:PivotTo(CFrame.new(position))
+		local pivotY = model:GetPivot().Position.Y
+		local lowest = math.huge
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("BasePart") then
+				lowest = math.min(lowest, d.Position.Y - d.Size.Y * 0.5)
+			end
+		end
+		if lowest < math.huge then
+			model:PivotTo(CFrame.new(Vector3.new(position.X, groundY + (pivotY - lowest), position.Z)))
+		end
 	end
 	model.Parent = folder
 
@@ -267,6 +357,47 @@ end
 function CreatureService.IsAlive(model: Model): boolean
 	local info = living[model]
 	return info ~= nil and info.alive
+end
+
+--[[
+	Every live creature whose pivot sits inside `box` (D-015 hitbox combat).
+
+	`box` is a CFrame at the box centre; `size` its full extents. A point is
+	inside when each component of its box-local offset is within half that size —
+	the standard OBB test, done here rather than with GetPartBoundsInBox because
+	creatures are Models and we want the registry's authoritative `alive` flag,
+	not whatever parts happen to be streamed in.
+
+	Sorted nearest-first from `box.Position` and truncated to `limit`, so the cap
+	drops the far creatures rather than an arbitrary hash-order selection — two
+	players swinging into the same crowd should hit the same bears.
+]]
+function CreatureService.GetAliveInBox(box: CFrame, size: Vector3, limit: number): { Model }
+	local half = size * 0.5
+	local found: { { model: Model, d: number } } = {}
+
+	for model, info in pairs(living) do
+		if info.alive and model.Parent then
+			local pivot = model:GetPivot().Position
+			local local_ = box:PointToObjectSpace(pivot)
+			if math.abs(local_.X) <= half.X
+				and math.abs(local_.Y) <= half.Y
+				and math.abs(local_.Z) <= half.Z
+			then
+				table.insert(found, { model = model, d = (pivot - box.Position).Magnitude })
+			end
+		end
+	end
+
+	table.sort(found, function(a, b)
+		return a.d < b.d
+	end)
+
+	local out: { Model } = {}
+	for i = 1, math.min(#found, limit) do
+		table.insert(out, found[i].model)
+	end
+	return out
 end
 
 function CreatureService.CountAlive(): number

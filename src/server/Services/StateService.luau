@@ -67,6 +67,48 @@ local REPLICATED: { [string]: (Player, any) -> any } = {
 	rebirths = function(_, data)
 		return data.rebirths
 	end,
+	--[[
+		Is auto-swing active RIGHT NOW (D-016)?
+
+		Three things must hold: the player wants it (`settings.autoSwing`), and
+		they are entitled to it — either inside the trial window or owning the
+		pass. Derived here rather than stored, so it cannot go stale the moment
+		the trial lapses mid-session.
+
+		The client treats this purely as a cadence hint. It is not a permission
+		gate and cannot be one: `RequestSwing` carries intent only, so a crafted
+		client can auto-swing regardless (D-016 says why that is acceptable).
+	]]
+	autoSwing = function(_, data)
+		if not data.settings.autoSwing then
+			return false
+		end
+		local trialActive = os.time() < (data.firstJoinAt + GameConfig.AutoSwingTrialSeconds)
+		-- A13 replaces this with MonetizationService.OwnsGamepass(player, "autoswing").
+		local ownsPass = false
+		return trialActive or ownsPass
+	end,
+
+	-- When the free window closes, as a server timestamp. The HUD counts this
+	-- down (B3) — the countdown IS the conversion moment, so the client needs the
+	-- number rather than just a boolean that flips one day without warning.
+	autoSwingTrialEndsAt = function(_, data)
+		return data.firstJoinAt + GameConfig.AutoSwingTrialSeconds
+	end,
+
+	-- The raw preference, so the toggle can render its own on/off state even
+	-- while the entitlement is absent (an expired player still sees their switch).
+	autoSwingEnabled = function(_, data)
+		return data.settings.autoSwing
+	end,
+
+	-- EffectsController (B4) gates every particle, number and flash on this.
+	-- Replicated because the setting lives on the profile but is only ever acted
+	-- on by the client — the server has no use for it beyond storing it.
+	reducedEffects = function(_, data)
+		return data.settings.reducedEffects
+	end,
+
 	multiplierBreakdown = function()
 		-- A13 replaces this with MonetizationService.GetCashMultiplier().
 		-- Shipping the shape now means the client can render it from day one

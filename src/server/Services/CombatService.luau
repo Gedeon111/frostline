@@ -128,23 +128,49 @@ local function onSwing(player: Player, creature: any)
 		return reject(player, "no_damage")
 	end
 
-	local died, _overkill = CreatureService.Damage(creature, damage, player)
+	--[[
+		The cleave (D-015). The client nominated ONE creature and that nomination
+		has now passed every check above — but it does not decide who gets hit.
+		The server rebuilds the hitbox from the character's own CFrame and finds
+		the victims itself, so a crafted client cannot widen its own cleave or
+		nominate creatures it isn't standing next to.
 
-	-- Feedback is cosmetic and scoped to who can see it. Broadcasting every hit
-	-- server-wide is a lot of traffic for VFX nobody is looking at.
-	Net.FireNear(
-		creature:GetPivot().Position,
-		GameConfig.FeedbackRadius,
-		"CombatFeedback",
-		creature,
-		damage,
-		died
-	)
+		The validated `creature` is still struck, even in the odd case where it
+		falls outside the recomputed box: the range check already passed, and
+		rejecting a swing the player was told would land feels like a bug.
+	]]
+	local rootPart = root :: BasePart
+	local box = rootPart.CFrame * CFrame.new(0, 0, -GameConfig.HitboxForwardOffset)
+	local targets = CreatureService.GetAliveInBox(box, GameConfig.HitboxSize, GameConfig.MaxCleaveTargets)
 
-	if died then
-		data.stats.kills += 1
-		if info.variant == "golden" then
-			data.stats.goldenKills += 1
+	if not table.find(targets, creature) then
+		table.insert(targets, 1, creature)
+	end
+
+	for _, target in ipairs(targets) do
+		local targetInfo = CreatureService.GetInfo(target)
+		-- Re-check per target: the zone gate must hold for every creature struck,
+		-- not just the one the client named, or cleave becomes the way around it.
+		if targetInfo and targetInfo.alive and data.unlockedZones[targetInfo.zoneId] then
+			local died = CreatureService.Damage(target, damage, player)
+
+			-- Feedback is cosmetic and scoped to who can see it. Broadcasting every
+			-- hit server-wide is a lot of traffic for VFX nobody is looking at.
+			Net.FireNear(
+				target:GetPivot().Position,
+				GameConfig.FeedbackRadius,
+				"CombatFeedback",
+				target,
+				damage,
+				died
+			)
+
+			if died then
+				data.stats.kills += 1
+				if targetInfo.variant == "golden" then
+					data.stats.goldenKills += 1
+				end
+			end
 		end
 	end
 end

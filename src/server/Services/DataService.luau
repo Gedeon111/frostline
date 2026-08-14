@@ -73,7 +73,11 @@ local TEMPLATE = {
 	funnelSteps = {},
 
 	stats = { kills = 0, sells = 0, playtimeSeconds = 0, goldenKills = 0 },
-	settings = { music = true, sfx = true, reducedEffects = false },
+	-- autoSwing is a PREFERENCE, never an entitlement (D-016). It records that the
+	-- player WANTS auto-swing; whether they may have it is derived server-side
+	-- from the trial window and pass ownership. Defaults true so the trial is
+	-- running from the first second, which is the entire point of a trial.
+	settings = { music = true, sfx = true, reducedEffects = false, autoSwing = true },
 	claims = { lastDailyAt = 0, dailyStreak = 0, redeemedCodes = {} },
 	receipts = {},
 	firstJoinAt = 0,
