@@ -49,6 +49,8 @@ invent a number.
 
 ### [A15] StateService v2 replication
 
+**Status:** DONE.
+
 **Owner:** Server · **Depends on:** F5
 
 **Read first:** ARCHITECTURE §4, existing StateService

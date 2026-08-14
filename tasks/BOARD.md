@@ -61,7 +61,7 @@ Target: eight assignable plots and one complete player-owned-store loop with sav
 
 | ID | Job | Owns | Depends | Status |
 |---|---|---|---|---|
-| A15 | StateService v2 replication | `StateService.luau` | F5 | TODO |
+| A15 | StateService v2 replication | `StateService.luau` | F5 | DONE |
 | A16 | InventoryService carry adaptation | `InventoryService.luau` | F5, A21 | TODO |
 | A17 | PlotService assignment and marker validation | `PlotService.luau` | F5, C8 | TODO |
 | A18 | StoreInventoryService fridge/reservations | `StoreInventoryService.luau` | F5, A16, A21 | TODO |

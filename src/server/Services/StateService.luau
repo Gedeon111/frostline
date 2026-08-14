@@ -1,21 +1,10 @@
 --!strict
 --[[
-	STATESERVICE — replicates the client-visible slice of a profile.
+	STATESERVICE - batched replication of the canonical v2 player-state subset.
 
-	The client is shown exactly the subset in ARCHITECTURE §4 and nothing else.
-	Everything absent from that list — receipts, analytics counters, session
-	timestamps — stays server-side, because anything replicated is readable by
-	the player and becomes something an exploiter can reason about.
-
-	BATCHING IS THE WHOLE POINT. A sell awards cash, clears the pack, and bumps
-	stats in the same frame. Firing per change is three packets for one action;
-	at 20 players selling on a loop that is a lot of traffic to say one thing.
-	Changes accumulate into a dirty set and go out once per tick at
-	GameConfig.StateReplicationHz.
-
-	Services never call in here directly. They fire their own Changed signals
-	and this listens — so CurrencyService doesn't need to know replication
-	exists, and the dependency stays one-way.
+	Only fields listed in ARCHITECTURE section 4 are exposed. Profile aliases,
+	receipts, analytics, reservations, queues, and customer internals remain
+	server-only.
 ]]
 
 local Players = game:GetService("Players")
@@ -24,123 +13,95 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConfig = require(Shared.Config.GameConfig)
+local Meat = require(Shared.Config.Meat)
+local Upgrades = require(Shared.Config.Upgrades)
+local ProfileSchema = require(Shared.ProfileSchema)
+local TableUtil = require(Shared.Util.TableUtil)
+local Types = require(Shared.Types)
 local Log = require(Shared.Util.Log)
 
 local Net = require(ServerScriptService.Services.Net)
 local DataService = require(ServerScriptService.Services.DataService)
 local CurrencyService = require(ServerScriptService.Services.CurrencyService)
 local InventoryService = require(ServerScriptService.Services.InventoryService)
+local UpgradeService = require(ServerScriptService.Services.UpgradeService)
 
 local StateService = {}
 
--- player -> { key = true } awaiting send. Values are read at flush time, not
--- captured here: if cash changes three times in one tick the client should get
--- the final figure, not a replay of the sequence.
 local dirty: { [Player]: { [string]: boolean } } = {}
+local sessionPlotIds: { [Player]: string } = {}
 
---[[
-	The allow-list. A key absent here is never sent, even if something marks it
-	dirty by mistake — which is the safe direction for a mistake to fail in.
+local function activeUpgrades(data: any): Types.UpgradeLevels
+	return {
+		axe = data.upgrades.axe,
+		carrier = data.upgrades.carrier,
+		fridge = data.upgrades.fridge,
+		register = data.upgrades.register,
+	}
+end
 
-	Each entry derives its value rather than reading the profile blindly, so
-	computed fields (packWeight, packCapacity) live in exactly one place.
-]]
 local REPLICATED: { [string]: (Player, any) -> any } = {
 	cash = function(_, data)
 		return data.cash
 	end,
-	pack = function(_, data)
-		return table.clone(data.pack)
+	carry = function(_, data)
+		return table.clone(data.carry)
 	end,
-	packWeight = function(player)
-		return InventoryService.GetWeight(player)
+	carryWeight = function(_, data)
+		return Meat.GetWeight(data.carry)
 	end,
-	packCapacity = function(player)
-		return InventoryService.GetCapacity(player)
+	carryCapacity = function(_, data)
+		return Upgrades.GetValue("carrier", data.upgrades.carrier)
+	end,
+	fridge = function(_, data)
+		return table.clone(data.store.fridge)
+	end,
+	fridgeWeight = function(_, data)
+		return Meat.GetWeight(data.store.fridge)
+	end,
+	fridgeCapacity = function(_, data)
+		return Upgrades.GetValue("fridge", data.upgrades.fridge)
+	end,
+	unclaimedCash = function(_, data)
+		return data.store.unclaimedCash
 	end,
 	upgrades = function(_, data)
-		return table.clone(data.upgrades)
+		return activeUpgrades(data)
 	end,
-	unlockedZones = function(_, data)
-		return table.clone(data.unlockedZones)
+	workers = function(_, data)
+		return TableUtil.DeepCopy(data.workers)
 	end,
-	rebirths = function(_, data)
-		return data.rebirths
+	plotId = function(player)
+		return sessionPlotIds[player]
 	end,
-	--[[
-		Is auto-swing active RIGHT NOW (D-016)?
-
-		Three things must hold: the player wants it (`settings.autoSwing`), and
-		they are entitled to it — either inside the trial window or owning the
-		pass. Derived here rather than stored, so it cannot go stale the moment
-		the trial lapses mid-session.
-
-		The client treats this purely as a cadence hint. It is not a permission
-		gate and cannot be one: `RequestSwing` carries intent only, so a crafted
-		client can auto-swing regardless (D-016 says why that is acceptable).
-	]]
 	autoSwing = function(_, data)
-		if not data.settings.autoSwing then
-			return false
-		end
-		local trialActive = os.time() < (data.firstJoinAt + GameConfig.AutoSwingTrialSeconds)
-		-- A13 replaces this with MonetizationService.OwnsGamepass(player, "autoswing").
-		local ownsPass = false
-		return trialActive or ownsPass
+		-- The pass is not configured in this pre-release slice. The future
+		-- MonetizationService supplies entitlement without changing profile data.
+		return ProfileSchema.IsAutoSwingActive(data, os.time(), false)
 	end,
-
-	-- When the free window closes, as a server timestamp. The HUD counts this
-	-- down (B3) — the countdown IS the conversion moment, so the client needs the
-	-- number rather than just a boolean that flips one day without warning.
 	autoSwingTrialEndsAt = function(_, data)
 		return data.firstJoinAt + GameConfig.AutoSwingTrialSeconds
 	end,
-
-	-- The raw preference, so the toggle can render its own on/off state even
-	-- while the entitlement is absent (an expired player still sees their switch).
 	autoSwingEnabled = function(_, data)
 		return data.settings.autoSwing
 	end,
-
-	-- EffectsController (B4) gates every particle, number and flash on this.
-	-- Replicated because the setting lives on the profile but is only ever acted
-	-- on by the client — the server has no use for it beyond storing it.
 	reducedEffects = function(_, data)
 		return data.settings.reducedEffects
 	end,
-
-	multiplierBreakdown = function()
-		-- A13 replaces this with MonetizationService.GetCashMultiplier().
-		-- Shipping the shape now means the client can render it from day one
-		-- and A13 becomes a one-function change rather than a UI rewrite.
-		return {
-			companions = 1,
-			gamepass = 1,
-			rebirth = 1,
-			boost = 1,
-			event = 1,
-			season = 1,
-			total = 1,
-		}
-	end,
 }
 
---[[
-	Marks a key for the next flush. Unknown keys are dropped loudly — a typo
-	would otherwise be a field that silently never reaches the client, which is
-	miserable to debug from the UI side.
-]]
 function StateService.Mark(player: Player, key: string)
 	if not REPLICATED[key] then
-		Log.warn("State", "'%s' is not replicated — see ARCHITECTURE §4", key)
+		Log.warn("State", "'%s' is not replicated - see ARCHITECTURE section 4", key)
 		return
 	end
-	local set = dirty[player]
-	if not set then
-		set = {}
-		dirty[player] = set
+
+	local keys = dirty[player]
+	if not keys then
+		keys = {}
+		dirty[player] = keys
 	end
-	set[key] = true
+	keys[key] = true
 end
 
 function StateService.MarkAll(player: Player)
@@ -149,38 +110,85 @@ function StateService.MarkAll(player: Player)
 	end
 end
 
+function StateService.MarkCarry(player: Player)
+	StateService.Mark(player, "carry")
+	StateService.Mark(player, "carryWeight")
+end
+
+function StateService.MarkFridge(player: Player)
+	StateService.Mark(player, "fridge")
+	StateService.Mark(player, "fridgeWeight")
+end
+
+function StateService.MarkUnclaimedCash(player: Player)
+	StateService.Mark(player, "unclaimedCash")
+end
+
+function StateService.MarkWorkers(player: Player)
+	StateService.Mark(player, "workers")
+end
+
+function StateService.MarkUpgrade(player: Player, track: Types.ActiveUpgradeTrack)
+	StateService.Mark(player, "upgrades")
+	if track == "carrier" then
+		StateService.Mark(player, "carryCapacity")
+	elseif track == "fridge" then
+		StateService.Mark(player, "fridgeCapacity")
+	end
+end
+
+function StateService.SetPlotId(player: Player, plotId: string?)
+	if sessionPlotIds[player] == plotId then
+		return
+	end
+
+	sessionPlotIds[player] = plotId
+	StateService.Mark(player, "plotId")
+end
+
+function StateService.GetPlotId(player: Player): string?
+	return sessionPlotIds[player]
+end
+
 local function build(player: Player, keys: { [string]: boolean }): { [string]: any }?
 	local data = DataService.GetData(player)
 	if not data then
 		return nil
 	end
-	local payload = {}
+
+	local payload: { [string]: any } = {}
 	for key in pairs(keys) do
 		local getter = REPLICATED[key]
 		if getter then
-			payload[key] = getter(player, data)
+			local value = getter(player, data)
+			if value ~= nil then
+				payload[key] = value
+			end
 		end
 	end
 	return payload
 end
 
--- Sends everything at once. Used on join, before the character exists, so the
--- HUD has real numbers on its first frame instead of zeros that snap.
-function StateService.PushFull(player: Player)
-	local all = {}
-	for key in pairs(REPLICATED) do
-		all[key] = true
-	end
-	local payload = build(player, all)
-	if payload then
+local function send(player: Player, keys: { [string]: boolean })
+	local payload = build(player, keys)
+	if payload and next(payload) ~= nil then
 		Net.Fire(player, "StateChanged", payload)
 		StateService._packetsSent += 1
 	end
+end
+
+function StateService.PushFull(player: Player)
+	local all: { [string]: boolean } = {}
+	for key in pairs(REPLICATED) do
+		all[key] = true
+	end
+
+	send(player, all)
 	dirty[player] = nil
 end
 
--- Diagnostics for the A2 verification and for A12 later.
 StateService._packetsSent = 0
+
 function StateService.GetPacketCount(): number
 	return StateService._packetsSent
 end
@@ -197,13 +205,16 @@ function StateService.Start()
 	end)
 
 	InventoryService.Changed:Connect(function(player: Player)
-		StateService.Mark(player, "pack")
-		StateService.Mark(player, "packWeight")
-		StateService.Mark(player, "packCapacity")
+		StateService.MarkCarry(player)
 	end)
 
-	Players.PlayerRemoving:Connect(function(player)
+	UpgradeService.Changed:Connect(function(player: Player, track: Types.ActiveUpgradeTrack)
+		StateService.MarkUpgrade(player, track)
+	end)
+
+	Players.PlayerRemoving:Connect(function(player: Player)
 		dirty[player] = nil
+		sessionPlotIds[player] = nil
 	end)
 
 	local interval = 1 / GameConfig.StateReplicationHz
@@ -213,11 +224,7 @@ function StateService.Start()
 			for player, keys in pairs(dirty) do
 				dirty[player] = nil
 				if player.Parent == Players then
-					local payload = build(player, keys)
-					if payload and next(payload) ~= nil then
-						Net.Fire(player, "StateChanged", payload)
-						StateService._packetsSent += 1
-					end
+					send(player, keys)
 				end
 			end
 		end

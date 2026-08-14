@@ -13,12 +13,14 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Upgrades = require(Shared.Config.Upgrades)
 local Types = require(Shared.Types)
+local Signal = require(Shared.Util.Signal)
 
 local CurrencyService = require(ServerScriptService.Services.CurrencyService)
 local DataService = require(ServerScriptService.Services.DataService)
 local Net = require(ServerScriptService.Services.Net)
 
 local UpgradeService = {}
+UpgradeService.Changed = Signal.new()
 
 local function getStoredLevel(upgrades: Types.UpgradeLevels, track: Types.ActiveUpgradeTrack): number
 	if track == "axe" then
@@ -88,6 +90,7 @@ local function purchase(player: Player, track: string): (boolean, Types.RefusalR
 
 	local nextLevel = currentLevel + (definition.maxLevel - #definition.costs)
 	setStoredLevel(data.upgrades, typedTrack, nextLevel)
+	UpgradeService.Changed:Fire(player, typedTrack, nextLevel)
 	return true, nil
 end
 
