@@ -1,0 +1,41 @@
+FROSTLINE - BUILD LIST
+
+ALREADY DONE
+  Tree (variants in progress)
+  Log
+
+
+TO BUILD
+
+1. Checkout counter
+   10 x 3 x 4
+   Counter with a flat top. Customers walk up to the front,
+   player stands behind it.
+   Leave the space behind it empty so the player can stand there.
+
+2. Register
+   3 x 2 x 2.5
+   Old chunky till that sits on top of the counter.
+
+3. Meat freezer
+   6 x 3 x 8
+   Upright freezer with a glass or open front and 3 shelves inside.
+   You need to see the meat inside from the front.
+   Variants: small (1 shelf), medium (3 shelves), large (4 shelves).
+
+4. Meat piece
+   1.5 x 1 x 0.8
+   A slab of ice bear meat. Red, lies flat.
+   Keep it very low part count, there will be hundreds of these.
+
+5. Ice bear
+   4 studs tall at the shoulder for the small one, up to 14 for the big one.
+   Blocky low poly bear. Big front paws, low head, no ears.
+   Two small glowing eyes.
+   Variants: 5 sizes, same model scaled and recolored.
+
+6. Computer table
+   6 x 3 x 4
+   Plain desk with an old fat CRT monitor on it, screen facing forward.
+   Screen should glow so you notice it across the room.
+   Leave space in front so the player can walk up to it.

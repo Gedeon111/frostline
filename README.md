@@ -54,10 +54,16 @@ Files are authoritative; Studio verifies.
 | Place | “hunt for money” — `83234958310651` (universe `10694878805`) |
 
 ```bash
-rokit install
-rojo serve
-./scripts/check.sh
+rokit install                # rojo, wally, selene, stylua, run-in-roblox
+wally install                # React Lua + UI Labs (Packages/, gitignored)
+rojo serve                   # live sync into an open place
+./scripts/check.sh           # wally + stylua + selene + build
 rojo build -o Hunt.rbxlx
 ```
 
-Never edit synced scripts in Studio; Rojo overwrites them.
+Never edit synced scripts in Studio; Rojo overwrites them. **One working copy, one Rojo
+server, no worktrees** — see `docs/WORKFLOW.md` §6.
+
+**UI is React Lua** (D-011), confined to `src/client/UI/`. Preview components without
+playtesting: install the [UI Labs](https://create.roblox.com/store/asset/14293316215) plugin
+and open it — it finds `UI.Stories.Frostline.storybook` on its own.
