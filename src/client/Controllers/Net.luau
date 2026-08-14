@@ -2,9 +2,9 @@
 --[[
 	NET (client) — the only place the client touches a remote.
 
-		Net.Fire("RequestSell")
-		local ok, reason = Net.Invoke("RequestPurchase", "pack", 4)
-		Net.On("Notify", function(kind, text, amount) ... end)
+		Net.Fire("RequestSwing", creature)
+		local ok, reason = Net.Invoke("RequestPurchase", "carrier")
+		Net.On("StoreFeedback", function(kind, amount, source, target) ... end)
 
 	No controller calls :FireServer() directly. One wrapper means one place to
 	add logging, one place a timeout is enforced, and one place to look when a

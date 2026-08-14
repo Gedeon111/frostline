@@ -30,8 +30,11 @@ local DataStoreService = game:GetService("DataStoreService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConfig = require(Shared.Config.GameConfig)
-local Zones = require(Shared.Config.Zones)
+-- Read by the v1 -> v2 migration to translate old pack contents into meat ids.
+local Creatures = require(Shared.Config.Creatures)
+local Meat = require(Shared.Config.Meat)
 local Signal = require(Shared.Util.Signal)
+local TableUtil = require(Shared.Util.TableUtil)
 local Format = require(Shared.Util.Format)
 local Log = require(Shared.Util.Log)
 local ProfileStore = require(ServerScriptService.Lib.ProfileStore)
@@ -47,34 +50,55 @@ DataService.Loaded = Signal.new()
 -- their next load. Removing or renaming one is not — that needs a migration.
 
 local TEMPLATE = {
-	version = 1,
+	version = 2,
 	cash = 0,
 	totalCashEarned = 0,
-	pack = {},
-	upgrades = { pack = 1, boots = 1, harpoon = 1 },
-	unlockedZones = { [Zones.StartingZone] = true },
+
+	-- What the player is carrying right now, meatId -> count. Weight is derived
+	-- from Config.Meat, never stored — a stored weight goes stale the moment
+	-- anyone retunes an item.
+	carry = {},
+
+	--[[
+		The store. Persists across leave/rejoin: GDD §8 requires the game never
+		erase earned value because a server closed, and unclaimed cash on the
+		counter is earned value the player simply has not walked over yet.
+	]]
+	store = {
+		fridge = {},
+		unclaimedCash = 0,
+	},
+
+	upgrades = { axe = 1, carrier = 1, fridge = 1, register = 1 },
+
+	workers = {
+		stocker = { unlocked = false, level = 0, enabled = false },
+		cashier = { unlocked = false, level = 0, enabled = false },
+		hunter = { unlocked = false, level = 0, enabled = false },
+	},
+
 	rebirths = 0,
 
-	-- Growth track (G) — populated by G2's schema RFC.
-	companions = {},
-	equipped = {},
-	indexClaimed = {},
-	eggStats = { hatches = 0, byEgg = {} },
-	quests = { daily = {}, weekly = {}, dailyResetAt = 0, weeklyResetAt = 0 },
-	season = { id = "", xp = 0, tier = 0, premium = false, claimed = {} },
-	boosts = {}, -- [boostId] = expiresAt. A TIMESTAMP, never remaining time —
-	             -- remaining time is wrong the instant a player rejoins.
-	offers = { starterShownAt = 0, starterPurchased = false, dealsSeed = 0 },
-	social = { groupClaimed = false },
+	-- autoSwing is a PREFERENCE, never an entitlement (D-016). It records that the
+	-- player WANTS auto-swing; whether they may have it is derived server-side
+	-- from the trial window and pass ownership. Defaults true so the trial is
+	-- running from the first second, which is the entire point of a trial.
+	settings = { music = true, sfx = true, reducedEffects = false, autoSwing = true },
 
 	-- Onboarding milestones already fired, keyed by step name (D-012). MUST be
 	-- persisted: a session-scoped guard re-fires every milestone on rejoin and
 	-- the funnel becomes a measure of how often people rejoin.
 	funnelSteps = {},
 
-	stats = { kills = 0, sells = 0, playtimeSeconds = 0, goldenKills = 0 },
-	settings = { music = true, sfx = true, reducedEffects = false },
-	claims = { lastDailyAt = 0, dailyStreak = 0, redeemedCodes = {} },
+	stats = {
+		kills = 0,
+		meatStocked = 0,
+		customerSales = 0,
+		cashCollections = 0,
+		playtimeSeconds = 0,
+		goldenKills = 0,
+	},
+
 	receipts = {},
 	firstJoinAt = 0,
 	lastJoinAt = 0,
@@ -84,13 +108,103 @@ export type ProfileData = typeof(TEMPLATE)
 
 -- ── Migrations ──────────────────────────────────────────────────────────────
 --[[
-	Keyed by the version being migrated FROM. Empty today — the mechanism exists
-	now because retrofitting migrations onto a live game with real players is
-	miserable, and by then every mistake is permanent.
+	Keyed by the version being migrated FROM.
 
-		[1] = function(data) data.newThing = data.oldThing; data.oldThing = nil end,
+	Deterministic and idempotent in effect: running v1 -> v2 twice on the same
+	table produces the same result, because every step reads a v1 field, writes
+	a v2 field, and then clears the v1 field.
+
+	The rule this migration is written against (ARCHITECTURE §4 / GDD §8): the
+	game must never erase earned value. Cash, lifetime earnings, settings,
+	analytics milestones, receipts and timestamps are preserved exactly. Nothing
+	here is allowed to drop a number a player worked for.
 ]]
-local MIGRATIONS: { [number]: (any) -> () } = {}
+local MIGRATIONS: { [number]: (any) -> () } = {
+	--[[
+		v1 -> v2 (D-017). The sell-pad game becomes the store game.
+
+		What moves:
+		  pack{tierId->count}  -> carry{meatId->count}   via the tier's meatId
+		  upgrades.pack        -> upgrades.carrier       same level, same table
+		  upgrades.harpoon     -> upgrades.axe           same level, same table
+		  stats.sells          -> stats.customerSales    closest honest analogue
+
+		What is created at its configured start:
+		  upgrades.fridge, upgrades.register, workers, store
+
+		What is dropped, and why that is safe:
+		  upgrades.boots       no movement track in the corrected slice
+		  unlockedZones        no zones to unlock
+		  companions/eggStats/quests/season/boosts/offers/social/claims
+		                       deferred designs, not entitlements
+
+		ECONOMY and ARCHITECTURE both note the game is pre-release, so no Robux
+		entitlement and no public player's purchase is discarded by any of that.
+		Boots levels bought with in-game cash ARE lost; there is no movement
+		track to carry them into, and inventing one to preserve them would be a
+		design decision smuggled in through a migration.
+
+		Old meta fields are left in storage rather than deleted. They are not
+		replicated or read, and keeping them means a reversal does not need to
+		reconstruct data we chose to throw away.
+	]]
+	[1] = function(data: any)
+		-- pack -> carry, translating tier ids to meat ids.
+		local carry: { [string]: number } = {}
+		if type(data.pack) == "table" then
+			for tierId, count in pairs(data.pack) do
+				if type(count) == "number" and count > 0 then
+					-- A tier that no longer exists (the four retired ones) has no
+					-- meat id. Its contents fall back to the starter meat rather
+					-- than vanishing — the player still carried something.
+					local meatId = Creatures.MeatIdFor(tierId, nil) or Meat.Order[1]
+					carry[meatId] = (carry[meatId] or 0) + count
+				end
+			end
+		end
+		data.carry = carry
+		data.pack = nil
+
+		-- Upgrade tracks: renamed, levels preserved exactly (ECONOMY §3 — the
+		-- values do not change during the naming migration).
+		local old = if type(data.upgrades) == "table" then data.upgrades else {}
+		data.upgrades = {
+			axe = tonumber(old.harpoon) or 1,
+			carrier = tonumber(old.pack) or 1,
+			fridge = 1,
+			register = 1,
+		}
+
+		data.store = {
+			fridge = {},
+			unclaimedCash = 0,
+		}
+
+		data.workers = {
+			stocker = { unlocked = false, level = 0, enabled = false },
+			cashier = { unlocked = false, level = 0, enabled = false },
+			hunter = { unlocked = false, level = 0, enabled = false },
+		}
+
+		-- Stats: keep what still means something, seed what does not exist yet.
+		local stats = if type(data.stats) == "table" then data.stats else {}
+		data.stats = {
+			kills = tonumber(stats.kills) or 0,
+			-- A v1 "sell" was a whole-pack sale at a pad. The nearest v2 concept
+			-- is a completed customer sale. Carried across rather than zeroed so
+			-- lifetime totals stay monotonic for anyone watching them.
+			customerSales = tonumber(stats.sells) or 0,
+			meatStocked = 0,
+			cashCollections = 0,
+			playtimeSeconds = tonumber(stats.playtimeSeconds) or 0,
+			goldenKills = tonumber(stats.goldenKills) or 0,
+		}
+
+		-- Explicitly retired. Nulled so a stale reader fails loudly rather than
+		-- silently acting on a value the game no longer honours.
+		data.unlockedZones = nil
+	end,
+}
 
 local function migrate(data: any, key: string)
 	local guard = 0
@@ -223,6 +337,31 @@ end
 
 -- nil while loading, after a failed load, or once the session has ended.
 -- ALWAYS guard the result.
+--[[
+	Testing surface for F5's contract tests.
+
+	The migration is the one piece of this service that is pure — it takes a
+	table and rewrites it — and it is also the piece where a mistake silently
+	destroys a player's money. Exposing it lets the contract tests run it
+	against real v1 fixtures without a DataStore, a player, or a loaded profile.
+
+	`WORKFLOW §8` is why this has to be explicit: `execute_luau` runs in its own
+	module cache, so a test cannot reach into this service's live state. Only a
+	function it can call directly is reachable.
+
+	Returns the same table, mutated, so a caller can assert on it inline.
+]]
+function DataService.MigrateForTest(data: any): any
+	migrate(data, "test")
+	return data
+end
+
+-- The default profile, copied. Tests assert the template's shape against
+-- ARCHITECTURE §4 without being able to mutate the real one.
+function DataService.GetTemplateForTest(): any
+	return TableUtil.DeepCopy(TEMPLATE)
+end
+
 function DataService.GetData(player: Player): ProfileData?
 	local profile = profiles[player]
 	if profile and profile:IsActive() then

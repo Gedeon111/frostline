@@ -22,12 +22,12 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConfig = require(Shared.Config.GameConfig)
-local Upgrades = require(Shared.Config.Upgrades)
 local Log = require(Shared.Util.Log)
 
 local Net = require(ServerScriptService.Services.Net)
 local DataService = require(ServerScriptService.Services.DataService)
 local CreatureService = require(ServerScriptService.Services.CreatureService)
+local UpgradeService = require(ServerScriptService.Services.UpgradeService)
 
 local CombatService = {}
 
@@ -54,16 +54,15 @@ function CombatService.GetRejectionCounts(): { [string]: number }
 end
 
 --[[
-	Damage for this player's current harpoon level. Straight from config —
-	ECONOMY §2 owns the curve, and a literal here would silently diverge from
-	the design doc the moment anyone tunes it.
+	Damage for this player's current AXE level (D-017 renamed the track).
+
+	Goes through UpgradeService rather than reading `data.upgrades` directly, so
+	the level lookup and the unloaded-profile guard stay in one place. ECONOMY
+	§3 owns the curve; a literal here would diverge from the doc the moment
+	anyone tunes it.
 ]]
 local function damageFor(player: Player): number
-	local data = DataService.GetData(player)
-	if not data then
-		return 0
-	end
-	return Upgrades.GetValue("harpoon", data.upgrades.harpoon)
+	return UpgradeService.GetValue(player, "axe") or 0
 end
 
 local function onSwing(player: Player, creature: any)
@@ -109,14 +108,20 @@ local function onSwing(player: Player, creature: any)
 		return reject(player, "out_of_range")
 	end
 
-	-- 5. Zone access. Without this, a player can farm Black Ice titans from
-	--    Shelf Ice by aiming at something they were never allowed to reach.
+	--[[
+		5. Profile loaded.
+
+		The V1 zone gate lived here — a player could otherwise farm a locked
+		zone's creatures by aiming across its border. D-017 removed zones
+		entirely: there is ONE shared hunting wilderness and everyone may hunt
+		all of it (GDD §4), so there is nothing left to gate on.
+
+		The profile check stays. Damage is derived from the axe level, and a
+		player whose profile has not loaded has no level to derive it from.
+	]]
 	local data = DataService.GetData(player)
 	if not data then
 		return reject(player, "not_loaded")
-	end
-	if not data.unlockedZones[info.zoneId] then
-		return reject(player, "zone_locked")
 	end
 
 	-- Passed. Commit the cooldown only now, so a rejected swing cannot be used
@@ -128,23 +133,50 @@ local function onSwing(player: Player, creature: any)
 		return reject(player, "no_damage")
 	end
 
-	local died, _overkill = CreatureService.Damage(creature, damage, player)
+	--[[
+		The cleave (D-015). The client nominated ONE creature and that nomination
+		has now passed every check above — but it does not decide who gets hit.
+		The server rebuilds the hitbox from the character's own CFrame and finds
+		the victims itself, so a crafted client cannot widen its own cleave or
+		nominate creatures it isn't standing next to.
 
-	-- Feedback is cosmetic and scoped to who can see it. Broadcasting every hit
-	-- server-wide is a lot of traffic for VFX nobody is looking at.
-	Net.FireNear(
-		creature:GetPivot().Position,
-		GameConfig.FeedbackRadius,
-		"CombatFeedback",
-		creature,
-		damage,
-		died
-	)
+		The validated `creature` is still struck, even in the odd case where it
+		falls outside the recomputed box: the range check already passed, and
+		rejecting a swing the player was told would land feels like a bug.
+	]]
+	local rootPart = root :: BasePart
+	local box = rootPart.CFrame * CFrame.new(0, 0, -GameConfig.HitboxForwardOffset)
+	local targets = CreatureService.GetAliveInBox(box, GameConfig.HitboxSize, GameConfig.MaxCleaveTargets)
 
-	if died then
-		data.stats.kills += 1
-		if info.variant == "golden" then
-			data.stats.goldenKills += 1
+	if not table.find(targets, creature) then
+		table.insert(targets, 1, creature)
+	end
+
+	for _, target in ipairs(targets) do
+		local targetInfo = CreatureService.GetInfo(target)
+		-- Still re-checked per target, minus the zone clause: a creature can die
+		-- to another player between the box query and this loop, and damaging a
+		-- corpse would double-count the kill.
+		if targetInfo and targetInfo.alive then
+			local died = CreatureService.Damage(target, damage, player)
+
+			-- Feedback is cosmetic and scoped to who can see it. Broadcasting every
+			-- hit server-wide is a lot of traffic for VFX nobody is looking at.
+			Net.FireNear(
+				target:GetPivot().Position,
+				GameConfig.FeedbackRadius,
+				"CombatFeedback",
+				target,
+				damage,
+				died
+			)
+
+			if died then
+				data.stats.kills += 1
+				if targetInfo.variant == "golden" then
+					data.stats.goldenKills += 1
+				end
+			end
 		end
 	end
 end

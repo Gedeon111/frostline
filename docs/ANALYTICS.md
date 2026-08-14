@@ -1,148 +1,153 @@
 # Analytics & Funnel Spec — FROSTLINE
 
-The build spec for job `A14`. Every event below is server-fired and server-authoritative.
-A client never reports its own progress.
+Every gameplay event is server-fired and server-authoritative. A client never reports its own
+progress, inventory, checkout value, cash, or worker output.
 
-## 1. Use Roblox's built-in AnalyticsService
+## 1. Transport
 
-Roblox ships an `AnalyticsService` with native funnel support, surfaced in the Creator
-Dashboard. No backend, no HTTP, no cost. Relevant methods:
+The project wrapper `AnalyticsService` sends onboarding, session, economy, and custom events to
+Roblox's analytics API. Verify current engine method signatures against official Roblox
+documentation when A27 is implemented; analytics API mistakes can fail silently.
 
-```lua
-LogOnboardingFunnelStepEvent(player, step, stepName)
-LogFunnelStepEvent(player, funnelName, funnelSessionId, step, stepName)
-LogEconomyEvent(player, flowType, currencyType, amount, endingBalance, transactionType, itemSku)
-LogCustomEvent(player, eventName, value, customFields)
-```
+Never block gameplay on analytics. Calls are protected, queued/batched where appropriate, and
+fail open without changing a transaction.
 
-**Verify these signatures against current Roblox docs before implementing** — this API has
-changed since introduction, and getting an argument order wrong produces silently empty
-dashboards rather than an error.
-
-Our wrapper service is *also* called `AnalyticsService`, which collides with the engine
-service name. Alias it at the top of the file (`local RbxAnalytics = game:GetService(...)`)
-and don't rename ours — every job packet already references it.
-
-**Optional later:** mirror events to an external endpoint via `HttpService` for custom
-queries. Ship behind `GameConfig.AnalyticsExternal`, default off. Don't build this for launch.
-
-## 2. Two classes of event — handle them differently
+## 2. Milestones versus streams
 
 | | Milestone events | Stream events |
 |---|---|---|
-| Example | `first_sell`, `zone_unlocked` | `cash_awarded`, `egg_hatched` |
-| Volume | once per player, ever | thousands per player per session |
-| Sampling | **never sample** | batch, aggregate, sample if needed |
-| Purpose | the funnel — where players quit | economy balance — where cash goes |
-| Fired from | the service that owns the milestone | `CurrencyService` / `EggService` |
+| Example | `first_fridge_stock`, `first_collection` | `meat_stocked`, `cash_awarded` |
+| Frequency | once per player, persisted | repeated during sessions |
+| Sampling | never | aggregate/batch |
+| Purpose | funnel abandonment | throughput and balance |
+| Source | owning server service | domain service/CurrencyService |
 
-Conflating these is the classic mistake: sampling milestone events destroys the funnel, and
-sending every stream event unbatched destroys performance.
+Persist milestone guards in `funnelSteps`. A session variable would double-count every rejoin.
 
-## 3. The onboarding funnel — the one that matters
+## 3. Corrected onboarding funnel
 
-Fired via `LogOnboardingFunnelStepEvent`. Steps are ordered and each fires **exactly once per
-player, ever.**
+| Step | Name | Owning service | Fires when |
+|---:|---|---|---|
+| 1 | `joined` | DataService | profile loaded and character available |
+| 2 | `plot_assigned` | PlotService | valid unique plot assigned |
+| 3 | `first_kill` | CombatService | first creature kill |
+| 4 | `first_carry` | InventoryService | first meat enters carry |
+| 5 | `first_fridge_stock` | StoreInventoryService | first meat enters refrigerator |
+| 6 | `first_reservation` | CustomerService | first customer reserves stock |
+| 7 | `first_checkout` | RegisterService | first reservation becomes unclaimed cash |
+| 8 | `first_collection` | CashPickupService | first counter cash becomes spendable cash |
+| 9 | `first_upgrade` | UpgradeService | first v2 upgrade purchase |
+| 10 | `worker_computer_opened` | WorkerService/UI handoff | server validates first owned-computer use |
+| 11 | `first_worker` | WorkerService | first worker unlock succeeds |
 
-| Step | Name | Fired by | Fires when |
-|---|---|---|---|
-| 1 | `joined` | DataService | profile loaded, character spawned |
-| 2 | `first_kill` | CombatService | first creature killed |
-| 3 | `first_sell` | SellService | first successful sell |
-| 4 | `first_upgrade` | UpgradeService | first upgrade purchased |
-| 5 | `first_hatch` | EggService | first egg hatched |
-| 6 | `zone_2` | ZoneService | Glacier Ridge unlocked |
-| 7 | `first_rebirth` | RebirthService | first rebirth |
+Steps fire once ever even if later steps occur out of order in test data. The funnel report may
+show skipped steps; the services must not fabricate missing events.
 
-**Idempotency is the whole game here.** Guard on a persisted profile flag
-(`funnelSteps[stepName] = true`), not a session variable. A session guard double-counts every
-rejoin and silently inflates your funnel until the numbers are meaningless.
+## 4. Session funnel
 
-Add `funnelSteps = {}` to the profile schema — file it in the `G2` schema RFC so it lands with
-the other growth fields rather than as a separate migration.
-
-## 4. Session funnel — retention
-
-Fired via `LogFunnelStepEvent` with a per-session `funnelSessionId`.
+Use a unique server-created session funnel id.
 
 | Step | Name | Fires when |
-|---|---|---|
-| 1 | `session_start` | join |
-| 2 | `sold_once` | first sell this session |
-| 3 | `offer_shown` | Starter Pack surfaced |
-| 4 | `offer_purchased` | Starter Pack bought |
-| 5 | `session_5min` | 5 minutes elapsed |
-| 6 | `session_20min` | 20 minutes elapsed |
+|---:|---|---|
+| 1 | `session_start` | profile loaded |
+| 2 | `hunted_once` | first kill this session |
+| 3 | `stocked_once` | first refrigerator transfer this session |
+| 4 | `checked_out_once` | first completed checkout this session |
+| 5 | `collected_once` | first counter collection this session |
+| 6 | `repeat_hunt` | first kill after a collection this session |
+| 7 | `session_5min` | configured five-minute observation point |
+| 8 | `session_20min` | configured twenty-minute observation point |
 
-**D1/D7 retention are not events.** They're derived by comparing `firstJoinAt` against
-subsequent `session_start` timestamps. Don't try to fire a `d1_return` event — you'd have to
-guess the boundary, and the dashboard computes it correctly from session data already.
+Return retention is derived from session timestamps; do not guess D1/D7 boundaries in gameplay
+code.
 
-## 5. Economy events — where cash comes from and goes
+## 5. Economy events
 
-Fired via `LogEconomyEvent` from **exactly two call sites**: `CurrencyService.Award` and
-`CurrencyService.Spend`. Those functions already take a `source` / `sink` string (job `A3`) —
-that string becomes the `itemSku`.
+Economy events originate only from `CurrencyService.Award` and `CurrencyService.Spend`.
+The source/sink argument becomes the SKU/category and every event includes ending balance.
 
-**Sources:** `sell`, `daily`, `quest`, `season`, `playtime_chest`, `code`, `group_reward`,
-`afk_camp`, `product_purchase`, `starter_pack`
+Corrected-slice sources:
 
-**Sinks:** `upgrade_pack`, `upgrade_boots`, `upgrade_harpoon`, `zone_unlock`, `egg_<id>`,
-`fusion`
+- `store_collection`;
+- explicitly configured test/admin sources, disabled in production;
+- later approved retention or product sources.
 
-Every event carries `endingBalance`, which lets you reconstruct the whole economy without
-tracking state yourself.
+Corrected-slice sinks:
 
-**The question this answers:** `docs/ECONOMY.md` §7 rule 7 requires eggs absorb 60–70% of
-lifetime cash. Summing sinks by category is the only way to know whether that's true. If eggs
-are at 30%, currency is inflating and upgrades have stopped mattering — a problem invisible
-from any other data.
+- `upgrade_axe`;
+- `upgrade_carrier`;
+- `upgrade_fridge`;
+- `upgrade_register`;
+- `worker_unlock_<id>`;
+- `worker_upgrade_<id>`.
 
-## 6. Custom events — monetization detail
+Checkout is not a spendable-cash source; it changes `unclaimedCash`. Log it as a store custom
+event, not a currency award. This distinction detects ledger/award mismatches.
 
-Via `LogCustomEvent`, with these custom fields on **every** event:
+Daily reconciliation metrics:
 
-```lua
-{ zone = "glacier_ridge", payer = "free", progress = "rebirth_2" }
+```text
+sum(store checkout value)
+- change in unclaimedCash
+- sum(store_collection awards)
+= expected pending/rounding delta
 ```
 
-**Three, not five (D-013).** `Enum.AnalyticsCustomFieldKeys` has exactly three members —
-verified against the live enum. `zone` and `payer` are the two §7 actually needs; the
-third is a coarse progress bucket. `multiplier` is recoverable from economy events.
+Any unexplained delta is a transaction bug.
 
-Those fields are what let you segment. "Conversion is 3%" is nearly useless; "conversion
-is 0.4% for players who never reached Zone 2 and 9% for those who did" tells you exactly where
-to spend effort.
+## 6. Store stream events
 
-| Event | Value | Extra fields |
-|---|---|---|
-| `egg_hatched` | rarity index | `eggId`, `companionId`, `luckApplied` |
-| `product_purchased` | robux | `productId`, `productName` |
-| `gamepass_purchased` | robux | `passId` |
-| `quest_claimed` | reward | `questId`, `kind` |
-| `boost_activated` | duration | `boostId` |
-| `pack_full_idle` | seconds | fires when a full pack sits unsold > 30s |
+Batch per player/plot and configured interval:
 
-That last one is a diagnostic, not a milestone: a player standing around with a full pack
-doesn't know where to sell. If it's common, the `HudController` sell arrow (job `B3`) isn't
-working, and no other event would ever reveal that.
+| Event | Value | Useful fields |
+|---|---:|---|
+| `meat_carried` | item count/weight | meat tier, variant |
+| `meat_stocked` | item count/weight | fridge level |
+| `customer_reserved` | basket value | customer type |
+| `customer_cancelled` | basket value | state/reason |
+| `checkout_completed` | resolved value | register level, operator type |
+| `cash_collected` | awarded value | pending age bucket |
+| `queue_blocked` | blocked seconds | reason |
+| `worker_cycle` | units moved/created | worker id/level |
+| `auto_swing_trial_state` | state transition | eligible/enabled |
 
-## 7. The three numbers reviewed daily at soft launch
+Custom fields stay within the engine-supported field count. Prefer coarse configured buckets over
+high-cardinality ids or positions. Never include player-entered text or personal data.
 
-Per `docs/MONETIZATION.md` §7:
+## 7. Diagnostic events
 
-1. **% of joins reaching `first_sell`** — under 80% means the opening is broken and every
-   number below it is polluted. Fix this before reading anything else.
-2. **D1 retention** — target 30%+. This is the discovery algorithm's input, so it gates
-   traffic, which gates everything.
-3. **Starter Pack conversion** — target 3–5% of D1 players.
+These diagnose unclear or tedious play:
 
-## 8. Rules
+- carry full while outside the owned plot for too long;
+- fridge empty while customers are waiting;
+- fridge full while carry still has stock;
+- stock available with no customer action during onboarding;
+- queue blocked while owner is standing in OperatorZone;
+- unclaimed cash left on the counter when a player leaves;
+- customer/reservation cancelled by profile unload;
+- plot assignment failure;
+- hunt round-trip bucket by plot id;
+- trial expiration followed by session exit.
 
-- **Server-side only.** A client that lies or disconnects mid-event corrupts the dataset.
-- **Never block gameplay on analytics.** Every call is wrapped in `pcall` and fired in a
-  separate thread. An analytics outage must never cost a player their sell.
-- **Batch stream events.** Never one call per cash award.
-- **No personally identifying data.** User IDs only — no names, no chat, nothing typed.
-- **Ship it before launch, not after.** Retrofitting a funnel means the first week of data —
-  the most valuable week you will ever have — is gone permanently.
+Durations and thresholds come from analytics config, not literals in services.
+
+## 8. Soft-launch measures
+
+1. joins reaching `first_collection`;
+2. median time from `first_fridge_stock` to `first_checkout`;
+3. percentage reaching `repeat_hunt`;
+4. first-session in-game upgrade and worker unlock rates;
+5. plot fairness and assignment failures;
+6. D1 retention;
+7. Auto-Swing trial-to-pass conversion without funnel harm;
+8. checkout-ledger-collection reconciliation.
+
+## 9. Rules
+
+- Server-side events only.
+- Milestones persist and never sample.
+- Stream events batch; transaction ids prevent duplicate accounting where needed.
+- Analytics failure never changes gameplay state.
+- No names, chat, free text, or other personal data.
+- New feature packets add their event names here before implementation.
+- Removed sell/zone/egg events remain historical dashboard data, not active v2 events.

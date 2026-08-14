@@ -1,5 +1,10 @@
 # M0 — Foundation
 
+> **Historical packet.** M0 is complete. D-017 supersedes its harpoon, sell-pad, zone, and
+> v1 contract content. Do not re-run these packets or copy their gameplay names into new work;
+> use F5 and the corrected M1 packets. The loader, utilities, Net pattern, and workflow remain
+> reusable.
+
 Everything blocks on these four. Do them in order, one worker (the Architect). Hand each
 `### [ID]` block to the worker as its entire opening message.
 

@@ -1,532 +1,489 @@
-# M1 — Vertical Slice
+# M1 — Corrected Store Vertical Slice
 
-**Milestone goal:** a player joins Shelf Ice, kills snow cubs, fills a pack, sells at the
-outpost, buys upgrades, rejoins, and everything is still there. One zone. One creature.
-No shop UI polish, no sound, no monetization. If this isn't fun, nothing later fixes it.
+D-017 supersedes the former sell-pad slice. Hand workers one complete `### [ID]` packet.
+No corrected-slice implementation starts before F5.
 
-Every packet assumes you have read `docs/WORKFLOW.md` and `docs/ARCHITECTURE.md`.
+Global rules for every code packet: `--!strict`; no gameplay numbers outside config; use Net
+wrappers; guard unloaded profiles; server revalidates client intent; clean every connection and
+Instance; run static checks, relevant tests, and Studio verification.
 
 ---
 
-### [A1] DataService
+### [F5] V2 contracts and migration
 
-**Owner:** Server · **Depends on:** F4
+**Owner:** Architect + Server · **Depends on:** D-017
 
-**Read first:** `docs/ARCHITECTURE.md` §4, `src/shared/Types.luau`
+**Read first:** WORKFLOW §2–5, ARCHITECTURE §3–4, ECONOMY, DECISIONS D-015–D-017
 
-**You own:** `src/server/Services/DataService.luau`, `src/server/Lib/ProfileStore.luau`
+**You own:** `src/shared/**`, `src/server/Services/DataService.luau`,
+`tests/contracts/**`
 
 **Build:**
-- Vendor ProfileStore as a single file under `Lib/`, license header intact, unmodified.
-- Profile template = the exact schema in ARCHITECTURE §4. Session-locked.
-- `DataService.GetData(player) -> ProfileData?` and `DataService.GetLoaded(player) -> boolean`.
-  Every other service goes through this — **no service may hold a profile reference.**
-- `TableUtil.Reconcile` against the template on load so new fields appear for old players.
-- A `migrations` table keyed by version. v1 is the baseline; write the mechanism now even
-  though it's empty, because retrofitting migrations to a live game is miserable.
-- Autosave loop at `GameConfig.AutosaveInterval`. Release on `PlayerRemoving`.
-  `game:BindToClose` flushes every active profile before shutdown.
-- `leaderstats` folder with a `Cash` IntValue mirrored from `data.cash`.
-- Kick the player with a clear message if the profile fails to load — playing on a
-  non-persisting session is worse than not playing.
-- `DataService.Loaded` signal (from `Util/Signal`) other services connect to.
 
-**Status: DONE** — 2026-08-13.
+- Replace v1 Types/Remotes/config with the v2 target in ARCHITECTURE.
+- Define meat ids, upgrade tracks, worker ids/actions, customer states, feedback kinds, state
+  payloads, and typed refusal reasons.
+- Add all Plot, Store, Customer, CashPickup, Worker, CarryVisual, and Axe tuning fields to
+  config. Services must need no numeric literals.
+- Keep D-015/D-016 hitbox, cleave, trial duration, product id, and toggle behavior.
+- Add profile version 2 and the deterministic migration in ARCHITECTURE §4.
+- Update Net generation for added/removed remotes. Remove `RequestSell` from the active
+  contract; do not leave a hidden compatibility route that awards cash.
+- Contract tests assert exact config shape, table invariants, refusal unions, migration
+  preservation, and that every declared remote is created.
 
-**Verified against the REAL DataStore** (`mock=false`), not an in-memory stub:
-- [x] Join → set cash `777799`, kills `42`, pack `5` → stop → start → **all three came
-      back intact**
-- [x] `firstJoinAt` held from the original join while `lastJoinAt` updated
-- [x] `leaderstats` shows `777.8K` — `Format.Abbreviate` wired through correctly
-- [x] Session locking, autosave, and `BindToClose` verified as ProfileStore's own
-- [x] No DataStore API called anywhere else — `DataStoreService` appears only in
-      `DataService` (for the API-access probe) and inside vendored `ProfileStore`
+**Done when:** old fixture migrates without losing cash/carry/receipts; fresh fixture reconciles;
+Auto-Swing state still derives correctly; shared modules typecheck; no service packet needs to
+invent a number.
 
-**Two corrections to this packet, both load-bearing:**
+**Out of scope:** implementing plots, customers, register, cash pickup, or workers.
 
-1. **Do not write an autosave loop or `BindToClose`.** ProfileStore already does both
-   (`AUTO_SAVE_PERIOD`, and two `BindToClose` registrations). Adding ours would double
-   every DataStore write and burn request budget for nothing. We only call
-   `SetConstant("AUTO_SAVE_PERIOD", GameConfig.AutosaveInterval)` to tighten 300s → 60s,
-   which bounds how much a hard crash can destroy.
-2. **`leaderstats.Cash` is a StringValue, not an IntValue.** Cash passes 2^31 before the
-   endgame, and `4.8B` reads better in the player list than raw digits. Numeric sorting
-   isn't lost — the real leaderboard is D4's OrderedDataStore.
-
-**Also added:** automatic fallback to `ProfileStore.Mock` when Studio API access is off,
-with a loud banner. Silently running on mock data looks *exactly* like working
-persistence until someone tests a rejoin.
-
-**Handoffs:**
-- `DataService.Loaded` fires `(player, data)` — A2/A3 should connect to it rather than
-  polling `GetData`.
-- **Never hold a profile reference.** Always `GetData(player)` and guard the nil —
-  a session can end at any moment and a stale reference writes into a table nobody saves.
-- `DataService.Save(player)` forces an immediate write. Robux purchases and rebirths
-  only; per-sell would burn the budget.
-- `funnelSteps` (ANALYTICS §3) is **not** in the template — it needs G2's schema RFC.
-  Adding it later is free; `Reconcile()` backfills existing profiles.
-
-**Out of scope (respected):** replication to the client (A2), leaderboards (D4).
+**Handoffs:** post the exact diff and unblock dependent rows on BOARD.
 
 ---
 
-### [A2] StateService — replication
+### [A15] StateService v2 replication
 
-**Owner:** Server · **Depends on:** A1
+**Owner:** Server · **Depends on:** F5
+
+**Read first:** ARCHITECTURE §4, existing StateService
 
 **You own:** `src/server/Services/StateService.luau`
 
-**Build:**
-- Maintain the **replicated subset** listed in ARCHITECTURE §4 per player. Nothing else
-  crosses the wire.
-- `StateService.Set(player, key, value)` marks dirty. A single loop at
-  `GameConfig.StateReplicationHz` (10Hz) fires **one** `StateChanged` with the accumulated
-  diff. Never fire per-change — 4 cash awards in one frame must be one packet.
-- Full state push on `DataService.Loaded` and on any client `RequestFullState`.
-- Derived values (`packWeight`, `packCapacity`, `multipliers`) are computed here from
-  authoritative data, not stored.
+Replicate only the v2 subset, including session `plotId`, carry/fridge summaries,
+`unclaimedCash`, workers, and Auto-Swing state. Preserve batched partial diffs. Never expose
+reservation tokens or customer internals.
 
-**Done when:**
-- [ ] 20 mutations in one frame produce exactly one `StateChanged`
-- [ ] A joining player receives full state exactly once, before their character spawns
-- [ ] No non-replicated field ever appears in a payload (assert this in a unit test)
+**Done when:** changing one fridge item does not resend unrelated state; plot assignment updates
+within one flush; unload after profile release produces no update; trial expiry changes derived
+state without a rejoin.
 
 ---
 
-### [A3] CurrencyService + InventoryService
+### [A21] UpgradeService v2 tracks
 
-**Owner:** Server · **Depends on:** A1
+**Owner:** Server · **Depends on:** F5
 
-**You own:** `src/server/Services/CurrencyService.luau`, `src/server/Services/InventoryService.luau`
-
-**Build:**
-
-`CurrencyService`
-- `Award(player, amount, source: string) -> number` — the **only** function in the codebase
-  that increases cash. Increments `totalCashEarned`. Emits an analytics hook (a no-op stub
-  until A14). Clamps to a sane max. Pushes to `StateService`.
-- `Spend(player, amount, sink: string) -> boolean` — the only function that decreases cash.
-  Returns false and changes nothing if insufficient. **Never allows negative.**
-- `CanAfford(player, amount) -> boolean`
-
-`InventoryService`
-- `GetCapacity(player)` from `Upgrades.pack` level + gamepass bonus hook (stub, A13 fills it)
-- `GetWeight(player)` — Σ over `pack` of `count × tier.meatWeight`
-- `TryAdd(player, tierId, count) -> added: number` — **partial adds are the correct
-  behaviour**. A pack with 3 free weight accepts one 2-weight meat and refuses the rest. It
-  must never overfill and never silently drop a whole drop.
-- `Clear(player) -> contents` — returns what was cleared, for SellService
-- `IsFull(player) -> boolean`
-
-**Status: DONE** — 2026-08-13. **30 assertions, all passing**, run in-game.
-
-- [x] exact-fill (10 × weight-2 into capacity 20), overfill-by-one (adds 0),
-      empty pack, and capacity change while loaded (lv1→lv2 gave 12 free
-      immediately, accepted 6 more with no rejoin)
-- [x] Cash cannot go negative: spend-1-over refused with cash **unchanged**,
-      spend-exactly-all leaves 0, spend-at-zero refused
-- [x] Bogus input rejected: award of 0, award of -50, NaN guarded
-- [x] `data.cash` written in exactly **two** places, both in `CurrencyService`
-      (verified by grep; other hits are comments). `data.pack` likewise, both
-      in `InventoryService`
-- [x] `Clear` twice in a row returns empty the second time — **cannot double-pay**
-- [x] `GetContents` hands out a copy; mutating it doesn't touch the real pack
-- [x] Unknown tier id adds 0 and logs, rather than corrupting weight
-
-**Design notes:**
-- **Partial adds are correct, not a compromise.** A pack with 3 free weight takes
-  one 2-weight meat and refuses the rest. Refusing the whole drop would lose the
-  player a kill they earned; accepting it all breaks the capacity rule the loop
-  rests on. A5 depends on this — the kill still counts when the pack is full.
-- **Capacity is derived, never cached**, so an upgrade applies to the very next
-  pickup.
-- Multipliers are **not** applied in `Award` — it takes a final amount.
-  `SellService` assembles them through the single point in MONETIZATION §1.
-
-**Handoffs:**
-- `CurrencyService.Changed(player, newCash, delta, reason)` and
-  `InventoryService.Changed(player, weight, capacity)` — **A2 replicates from
-  these signals** rather than the services knowing StateService exists.
-- `InventoryService.GetValue(contents)` gives the pre-multiplier value; A6 wraps it.
-- Analytics call sites exist and currently log — **A14 replaces one function body**
-  (`emit` in CurrencyService), not every call site.
-- `gamepassBonus()` in InventoryService is a stub returning 0 — **A13 fills it**.
-
-**Out of scope (respected):** payout math (A6), upgrade purchase (A7).
-
----
-
-### [A4] CreatureService
-
-**Owner:** Server · **Depends on:** F4
-
-**Read first:** `docs/DECISIONS.md` D-003 (no Humanoid), `Config/Creatures.luau`, `Config/Zones.luau`
-
-**You own:** `src/server/Services/CreatureService.luau`
-
-**Build:**
-- On start, for each zone in config, spawn `population` creatures at points sampled from the
-  zone's `spawnArea` (Poisson-ish spacing, minimum 12 studs apart — clumped bears feel broken).
-- Clone from `ReplicatedStorage.Assets.Creatures[tier.modelName]`. **If the asset is missing,
-  generate a placeholder block model from tier dimensions and log a warning** — the world
-  must be playable before C4 lands. This matters: three other jobs depend on creatures
-  existing.
-- HP lives in a server-side `{[Model]: {hp, maxHp, tierId, zoneId, variant}}` table.
-  Never on the instance, never replicated.
-- `CreatureService.Damage(model, amount) -> died: boolean, overkill: number`
-- On death: fire `CreatureDied`, detach the model, play nothing (client handles VFX), start a
-  `tier.respawnSeconds` timer, respawn at a **new** sampled point.
-- `CreatureService.GetInfo(model)` for other services. `CreatureService.Died` signal carrying
-  `(killer, model, tierId, variant)`.
-- Creatures wander: a slow lerp to a random point within 30 studs every 4–8s. No pathfinding,
-  no Humanoid, no physics — set `CFrame` directly, anchored.
-
-**Status: DONE** — 2026-08-13. 20 assertions, all passing, verified in-game.
-
-- [x] 25 spawned in `shelf_ice`; the other four zones **skip with a warning**
-      rather than failing, since C2/C3 haven't built their geometry yet
-- [x] Min spacing honoured — closest pair 13.6 studs against a 12-stud minimum,
-      checked across all 300 pairs
-- [x] Damage reduces HP; `Humanoid.Health` mirrors it for display only
-- [x] Lethal damage returns `died=true` with correct overkill (5), drops land
-      in the pack
-- [x] **`Damage` on an already-dead model returns false and awards nothing** —
-      two players finishing the same bear can't both get drops
-- [x] Full pack: the kill still registers, pack does not overfill
-- [x] Respawned back to 25 after the configured 8s
-- [x] Golden variant rolled 1/25 and renders gold in-world
-- [x] Works from a single shared base model, scaled per tier
-
-**Deviation from the packet — Humanoids are kept.** The packet said zero
-Humanoids. The real bear model is a Motor6D rig whose walk animation is driven
-by `Humanoid:MoveTo`; removing it would mean rebuilding locomotion from scratch
-to save cost we haven't measured. D-003's concern was 125 concurrent Humanoids,
-which is worth measuring at E2 and tuning via disabled Humanoid states — not
-worth pre-emptively rebuilding animation for. **HP is still server-side only**;
-`Humanoid.Health` is a mirror and is never read for gameplay, which was D-003's
-other and more important point.
-
-**Design notes:**
-- **One wander loop for all creatures**, not one per creature. 125 `while true`
-  loops is 125 coroutines competing for the scheduler.
-- Wander offsets come from `home` (the spawn point), never the current position —
-  measuring from current makes creatures random-walk off the map over minutes.
-- Golden multiplies **value, not drop count**; extra meat would just overflow
-  the pack and hide the reward.
-
-**Handoffs:**
-- `CreatureService.Damage(model, amount, killer)` is what A5 calls after it
-  validates range and cooldown. It already grants drops and fires `Died`.
-- Setting the `Flinch` attribute on a creature plays its hit animation.
-- **`ReplicatedStorage.Assets` is no longer Rojo-managed** — models are art and
-  live in Studio like `Workspace`. Otherwise every sync deleted them.
-- The `shelf_ice.SpawnZone` part is a 200×200 placeholder; **C2 replaces it**.
-  The instance *names* are the contract, not the shapes.
-- Per-tier models drop in automatically: name one after the tier's `modelName`
-  under `Assets.Creatures` and it's used instead of the scaled base.
-- Scaled height came out 3.11 studs against a spec of 4.0, because scaling maps
-  total model height to `shoulderHeight`. **C4 should reconcile that** when real
-  per-tier models exist.
-
----
-
-### [A5] CombatService
-
-**Owner:** Server · **Depends on:** A3, A4
-
-**You own:** `src/server/Services/CombatService.luau`
-
-**Build:**
-- Handle `RequestSwing(creature)`. Validate, in this order, cheapest first:
-  1. rate limit (already applied by `Net`, but assert cooldown ≥ `GameConfig.SwingCooldown`
-     using a server-side per-player timestamp — **not** a client-sent one)
-  2. creature exists, is alive, is registered with `CreatureService`
-  3. player's character exists, is alive
-  4. distance ≤ `GameConfig.SwingRange` **× 1.25 tolerance** for lag. Tolerance is a config
-     value, not a magic number.
-  5. player has the creature's zone unlocked and is inside that zone's bounds
-- Damage = `Upgrades.harpoon.damage[level]`. From config, never computed inline.
-- Fire `CombatFeedback` to nearby players (within 120 studs) — not to the whole server.
-- On kill: `InventoryService.TryAdd(killer, tierId, tier.dropCount × variantMult)`. If the
-  pack is full, add what fits and fire `Notify("full")`. **The kill still counts** — losing a
-  kill to a full pack feels like theft.
-- Credit the kill to the player who dealt the killing blow. No damage-share splitting in M1.
-
-**Done when:**
-- [ ] A client firing `RequestSwing` 100×/second lands at most 1 swing per 0.6s
-- [ ] A swing from 500 studs away is rejected and logged
-- [ ] A swing at a creature in a locked zone is rejected
-- [ ] Killing with a full pack awards partial meat, notifies, and does not error
-- [ ] Two players swinging at one creature both get feedback; only the finisher gets drops
-
-**Out of scope:** tool models/animation (A10), aggro/creature retaliation (not in this game).
-
----
-
-### [A6] SellService
-
-**Owner:** Server · **Depends on:** A3
-
-**You own:** `src/server/Services/SellService.luau`
-
-**Build:**
-- Sell pads come from `Config/Zones.luau` `sellPads`. Track player occupancy by region check
-  on a 5Hz loop (not `Touched` — `Touched` is unreliable and exploitable).
-- Handle `RequestSell()`. Validate: player in a sell region, pack non-empty.
-- Payout = `Σ(count × tier.meatValue) × MonetizationService.GetCashMultiplier(player)`.
-  Call the multiplier through a stub that returns 1 until A13 lands — **write the call site
-  now** so nobody bolts multipliers on later in three different places.
-- `InventoryService.Clear` → `CurrencyService.Award(player, payout, "sell")` → `Notify("cash",
-  payout)`. In that order; if Award fails, the meat is not lost.
-- Increment `stats.sells`.
-
-**Done when:**
-- [ ] Selling an empty pack is a no-op with a `Notify`, not an error
-- [ ] Payout matches a hand-computed value in a unit test for a mixed-tier pack
-- [ ] Standing outside the pad and firing the remote is rejected
-- [ ] Selling twice in one frame cannot double-pay (clear before award, guarded)
-
----
-
-### [A7] UpgradeService
-
-**Owner:** Server · **Depends on:** A3
+**Read first:** ECONOMY §3, Config.Upgrades, Types.RefusalReason
 
 **You own:** `src/server/Services/UpgradeService.luau`
 
-**Build:**
-- Handle `RequestPurchase(track, )` → `(ok, reason)`. Validate: track exists,
-  `level+1 ≤ maxLevel`, cost from `Config/Upgrades.costs`, `CurrencyService.Spend` succeeds.
-- Apply effects on purchase **and** on `DataService.Loaded` **and** on character respawn:
-  - `boots` → `Humanoid.WalkSpeed`
-  - `pack` → nothing to apply, `InventoryService` reads the level
-  - `harpoon` → nothing to apply, `CombatService` reads the level
-- `UpgradeService.GetLevel(player, track)`, `.GetValue(player, track)` — every other service
-  reads effects through these, never from the profile directly.
-- Return **typed refusal reasons** (`"max_level"`, `"insufficient_funds"`, `"unknown_track"`)
-  so the client can show the right message without inventing its own copy.
+Support only configured tracks `axe`, `carrier`, `fridge`, and `register`. Read level
+through DataService with a nil guard. Spend only through
+`CurrencyService.Spend(player, cost, sink)`. Expose typed `GetLevel` and `GetValue`.
+Apply character effects only when a configured track actually has one.
 
-**Done when:**
-- [ ] Buying with exactly enough cash succeeds and leaves 0
-- [ ] Buying with 1 short fails, changes nothing, returns `"insufficient_funds"`
-- [ ] Level 10 → 11 refuses with `"max_level"`
-- [ ] WalkSpeed persists across death/respawn and rejoin
-- [ ] Costs match `docs/ECONOMY.md` §2 exactly (unit test asserts the whole table)
+**Done when:** exact funds succeed; one short refuses; max and unknown tracks return only typed
+reasons; migrated axe/carrier levels are read; respawn/rejoin is safe.
 
 ---
 
-### [B1] Client bootstrap, Net, State mirror
+### [A16] InventoryService carry adaptation
 
-**Owner:** Client · **Depends on:** F4
+**Owner:** Server · **Depends on:** F5, A21
 
-**You own:** `src/client/Controllers/State.luau` (and the bootstrap from F4 is yours to extend)
+**Read first:** ARCHITECTURE §4–5, Config.Meat, existing InventoryService
 
-**Build:**
-- `State` holds the replicated subset, merges incoming `StateChanged` partials.
-- `State.Get(key)`, `State.Observe(key, fn)` — fires immediately with the current value then
-  on every change. **Every UI element binds through `Observe`.** No polling, anywhere.
-- Block until the first full state arrives; expose `State.Ready` (signal + boolean) so
-  controllers don't render an empty HUD for two frames.
+**You own:** `src/server/Services/InventoryService.luau`
 
-**Done when:**
-- [ ] A partial update touching only `cash` does not re-fire observers for `pack`
-- [ ] `Observe` on an unknown key doesn't error and fires when the key first appears
-- [ ] No controller reads a remote directly; everything goes through `State` or `Net`
+Rename pack semantics to carry while preserving partial-add safety. Store counts by `meatId`,
+derive weight/capacity from config and UpgradeService, return copies, and expose atomic
+remove/transfer primitives for StoreInventoryService. Never collapse variants.
+
+**Done when:** mixed meat weight is exact; partial adds do not overfill; failed removal changes
+nothing; mutation of returned contents cannot affect profile; nil profile refuses safely.
 
 ---
 
-### [B2] HarvestController
+### [A17] PlotService
 
-**Owner:** Client · **Depends on:** B1, A5
+**Owner:** Server · **Depends on:** F5, C8
+
+**Read first:** ARCHITECTURE §7, Config.Plots
+
+**You own:** `src/server/Services/PlotService.luau`
+
+Validate Plot01–Plot08 and required markers. Assign one free plot per loaded player, publish
+session plot id, move spawning to PlayerSpawn, and release on profile unload/leave. Expose typed
+marker lookup, owner checks, and server region membership helpers. Plot numbers never persist.
+
+**Done when:** eight simulated players get unique valid plots; ninth receives configured safe
+handling; release/reassignment leaves no owner state; missing markers disable only that plot;
+a player cannot operate another plot.
+
+---
+
+### [A18] StoreInventoryService
+
+**Owner:** Server · **Depends on:** F5, A16, A21
+
+**Read first:** ARCHITECTURE §5 customer state machine, ECONOMY §1/§5
+
+**You own:** `src/server/Services/StoreInventoryService.luau`
+
+Own refrigerator capacity and stock. Atomically transfer what fits from carry at the owner's
+UnloadZone. Provide reserve, return, and consume APIs using opaque server-only tokens. Available
+stock excludes active reservations. Return all outstanding reservations on profile unload.
+
+**Done when:** unload preserves overflow in carry; two customers cannot reserve one item;
+return/consume is exactly-once; fridge never overfills; another player cannot unload into or
+reserve from the plot.
+
+---
+
+### [A19] CreatureService shared-ground adaptation
+
+**Owner:** Server · **Depends on:** F5, C9
+
+**Read first:** Config.Creatures/Meat/HuntingGround, existing CreatureService
+
+**You own:** `src/server/Services/CreatureService.luau`
+
+Keep server HP, respawn, and duplicate-death protection. Spawn only in the configured shared
+ground for M1. Resolve a configured `meatId` including variant on death and award through
+InventoryService. Preserve visual spawn/death signals.
+
+**Done when:** all creatures stay in the shared region; golden/rare kills create distinct meat
+ids with correct configured value; full carry permits only the configured partial award; one
+death cannot award twice.
+
+---
+
+### [A20] CombatService axe adaptation
+
+**Owner:** Server · **Depends on:** F5, A19, A21
+
+**Read first:** D-015/D-016, Config.GameConfig, existing CombatService
+
+**You own:** `src/server/Services/CombatService.luau`
+
+Preserve server cadence, server-built hitbox, bounded cleave, per-target registration/alive
+checks, and kill attribution. Damage comes from UpgradeService's `axe` value. Client
+nomination remains a hint, never a victim list.
+
+**Done when:** spam cannot beat configured cadence; remote range lies fail; cleave respects cap;
+all struck targets are server-selected; equivalent manual and Auto-Swing intent have the same
+damage ceiling.
+
+---
+
+### [A22] CustomerService
+
+**Owner:** Server · **Depends on:** A17, A18, C10
+
+**Read first:** ARCHITECTURE §5 state machine, Config.Store.Customers
+
+**You own:** `src/server/Services/CustomerService.luau`
+
+Run one bounded scheduler for all plots. Customers enter, seek stock, reserve one configured
+basket, take it, queue, await checkout, and leave. Use plot route markers; do not infer gameplay
+from client animation. Return reservations on cancellation, model destruction, plot release,
+and profile unload.
+
+**Done when:** empty stores do not consume stock; stocked stores form a bounded queue; cancellation
+returns stock once; customers never cross plots; population stays within config after a long run.
+
+---
+
+### [A23] RegisterService
+
+**Owner:** Server · **Depends on:** A17, A18, A21, A22
+
+**Read first:** ARCHITECTURE §5 cash boundary, ECONOMY §1/§5
+
+**You own:** `src/server/Services/RegisterService.luau`
+
+Detect the owner in OperatorZone server-side. Progress the head queued customer at configured
+register speed, consume its reservation on completion, resolve configured value and the
+approved multiplier once, and add the integer result to `store.unclaimedCash`. Expose the same
+processing API to the future cashier worker.
+
+**Done when:** no owner means no progress; another player cannot operate it; leaving pauses
+without duplicating completion; one token checks out once; profile unload halts cleanly; no
+spendable cash is awarded here.
+
+---
+
+### [A24] CashPickupService
+
+**Owner:** Server · **Depends on:** A17, A23
+
+**Read first:** ARCHITECTURE §5 cash transaction boundary, Config.Store.Cash
+
+**You own:** `src/server/Services/CashPickupService.luau`
+
+Project `unclaimedCash` into a capped counter visual and detect owner proximity on the server.
+Atomically remove the ledger amount, call
+`CurrencyService.Award(player, amount, "store_collection")`, restore on failure, and fire
+StoreFeedback. Visual parts never determine value.
+
+**Done when:** two collection ticks cannot double-pay; visual deletion does not erase or award
+cash; failed award restores ledger; leave/rejoin restores the visual; non-owner proximity does
+nothing.
+
+---
+
+### [A25] WorkerService — stocker proof
+
+**Owner:** Server · **Depends on:** A17, A18, A21
+
+**Read first:** GDD §7, Config.Workers
+
+**You own:** `src/server/Services/WorkerService.luau`
+
+Implement unlock/upgrade/toggle validation for configured workers, but activate only the stocker
+behavior in M1. The stocker calls StoreInventoryService; it never writes profile inventory.
+Pause on full fridge, empty source, disabled state, plot release, or unloaded profile.
+
+**Done when:** exact-cost unlock works through CurrencyService.Spend; invalid transitions return
+typed reasons; toggle persists; stocker cannot overfill or create meat; no offline backlog accrues.
+
+---
+
+### [A26] ToolService — axes
+
+**Owner:** Server · **Depends on:** F5, A20, C11
+
+**Read first:** Config.Tools, Config.Upgrades.axe
+
+**You own:** `src/server/Services/ToolService.luau`
+
+Equip the configured axe model for the player's axe level, swap at configured thresholds, attach
+at `AxeGrip`, and play the configured swing animation only after CombatService accepts a swing.
+No Tool instances and no harpoon compatibility branch.
+
+**Done when:** join/respawn equips once; threshold purchase swaps without duplicates; accepted
+swing animates; rejected spam does not; every created instance/connection cleans up.
+
+---
+
+### [A27] Analytics funnel adaptation
+
+**Owner:** Server · **Depends on:** A18, A23, A24
+
+**Read first:** MONETIZATION §5, existing AnalyticsService
+
+**You own:** `src/server/Services/AnalyticsService.luau`
+
+Preserve the event transport and replace obsolete sell/zone funnel definitions with D-017 stages:
+plot assigned, first kill/carry, first stock, reservation, checkout, collection, upgrade, computer,
+worker. Economy values come from server event call sites only.
+
+**Done when:** each first-time milestone emits once across rejoin; collection source/sink totals
+balance; no client value is logged as authoritative.
+
+---
+
+### [B10] Client State v2
+
+**Owner:** Client · **Depends on:** F5, A15
+
+**You own:** `src/client/Controllers/State.luau`
+
+Update typed keys for v2 while preserving immediate observation and partial-diff behavior.
+
+**Done when:** carry and fridge updates are independent; plot id can arrive after initial profile
+state; removed v1 keys have no observers; unknown keys remain safe.
+
+---
+
+### [B11] HarvestController — axes and Auto-Swing
+
+**Owner:** Client · **Depends on:** F5, A20, B10
+
+**Read first:** D-015/D-016, existing HarvestController
 
 **You own:** `src/client/Controllers/HarvestController.luau`
 
-**Build:**
-- One `ProximityPrompt` **per creature**, created client-side on `CreatureSpawned`,
-  `HoldDuration = 0`, `RequiresLineOfSight = false`, `MaxActivationDistance` from config.
-- Hold-to-swing: while the prompt is held (or the mouse/touch is down on a valid target),
-  fire `RequestSwing` at exactly the swing cadence. Client-side cooldown is **cosmetic only** —
-  the server is the authority and will silently drop extras.
-- Track the current target; show the prompt text as the creature's display name, and swap it
-  to `PACK FULL` when `State.packWeight >= packCapacity`.
-- Mobile: the prompt is the whole interaction. No separate button. Verify hold works on touch.
-- Fire a local `SwingStarted` signal that `EffectsController` and `SoundController` consume —
-  do not put VFX in this file.
+Preserve tap-per-swing, the ten-minute trial, pass entitlement state, and toggle. Select only a
+nearby cosmetic target hint and send through Controllers.Net. The local cadence is cosmetic; do
+not synchronize around server drops. Fire the existing local swing signal for effects/audio.
 
-**Done when:**
-- [ ] Holding the prompt produces a steady swing rhythm with no client-side stutter
-- [ ] Releasing stops immediately
-- [ ] Prompt text reflects pack-full state within one frame of the state change
-- [ ] Works with keyboard, mouse, and touch
-- [ ] Prompts are destroyed when creatures die (no orphaned prompts after 20 minutes)
+**Done when:** tap works on mouse/touch/controller; trial Auto-Swing starts/stops with state;
+expiry falls back to manual; toggle applies; no direct FireServer; no gameplay number literal.
 
 ---
 
-### [B3] HudController
+### [B12] CarryController
 
-**Owner:** Client · **Depends on:** B1, C1
+**Owner:** Client · **Depends on:** B10, C11
 
-**Read first:** `docs/ART_BIBLE.md` §6 — the restraint rules are the point of this job
+**You own:** `src/client/Controllers/CarryController.luau`
 
-**You own:** `src/client/UI/Hud.luau`, `src/client/Controllers/HudController.luau`
+Render the configured wooden carrier and a bounded representative meat stack from authoritative
+carry state. Scale the representation up to its configured visual cap; never clone one piece per
+item. Rebuild on character respawn and clean old models.
 
-**Build:**
-- Cash counter (top-left, `gold`, `Format.Abbreviate`, tweened count-up over 0.35s)
-- Pack bar directly beneath: 240×10, `snow` fill, `blood` at 100%, `84 / 128` beside it
-- Zone name, small, `snowShadow`, top-center, fades in for 2s on zone entry then fades out
-- Sell arrow: a small chevron at screen edge pointing to the nearest sell pad. Appears only
-  when the pack is ≥ 50% full. This is the single most important onboarding affordance —
-  a new player must never wonder where to go.
-- **Five elements total.** Nothing else may be added to the HUD without an ART_BIBLE change.
-
-**Done when:**
-- [ ] Renders correctly at 16:9, 4:3, and phone portrait
-- [ ] No element overlaps the Roblox top bar or the mobile jump button
-- [ ] Every value binds via `State.Observe`, zero `RunService` polling except the arrow
-- [ ] Matches the palette tokens from C1 by reference, no hardcoded Color3
+**Done when:** empty/partial/full states are distinct; large capacity stays under the visual part
+cap; variant visuals are preserved; respawn and rapid updates leak nothing.
 
 ---
 
-### [B4] EffectsController
+### [B13] StoreEffectsController
 
-**Owner:** Client · **Depends on:** B1, C1
+**Owner:** Client · **Depends on:** F5, B10, C11
 
-**You own:** `src/client/Controllers/EffectsController.luau`
+**You own:** `src/client/Controllers/StoreEffectsController.luau`
 
-**Build:** the entire feel layer from `docs/GDD.md` §6.
-- On `CombatFeedback`: white flash on the creature (Highlight, 60ms), 3–5 chunk particles in
-  the hit direction, 40ms hitstop (scale the local swing animation, **never** touch
-  `Workspace.Gravity` or global timescale).
-- Floating damage number, small, `snow`, rises 30 studs and fades over 0.5s. Pooled — never
-  create a `BillboardGui` per hit at 100 hits/minute.
-- On kill: creature topple tween, meat chunks pop out in an arc toward the player, `x4`
-  counter tick near the pack bar.
-- On sell: one big `+$1,240` in `gold` at screen center, scale-punch, 0.8s.
-- All of it respects a `settings.reducedEffects` flag (add to the settings table via RFC if
-  it isn't there — some phones will need it).
+Consume CarryFeedback/StoreFeedback and animate pooled meat/cash representatives. Meat flies to
+the carrier and refrigerator; counter cash magnetizes to the player with accelerating arrival
+ticks. No service rule or value calculation lives here.
 
-**Done when:**
-- [ ] Object pools for numbers and particles; steady-state allocation ≈ 0 after 2 minutes
-- [ ] 5 players killing simultaneously in view holds ≥ 50 FPS on a mid-range phone
-- [ ] Hitstop never affects character movement input
-- [ ] Nothing in this file talks to a remote directly or knows any game rule
+**Done when:** effects still complete if source streams out; reduced-effects mode uses a cheaper
+path; steady-state allocations flatten; deleting cosmetics cannot affect server state.
 
 ---
 
-### [C1] UI kit
+### [B14] Corrected HUD
 
-**Owner:** Client · **Depends on:** F1
+**Owner:** Client · **Depends on:** B10, UI kit
 
-**Read first:** `docs/ART_BIBLE.md` §2, §6
+**You own:** corrected HUD controller/components named in the PR
 
-**You own:** `src/client/UI/Ui.luau`, `src/client/UI/Theme.luau`
+Show cash, carry fullness, refrigerator status while on the owned plot, concise guidance for the
+next incomplete funnel step, and the Auto-Swing trial/toggle. Remove sell arrows and zone-unlock
+surfaces.
 
-**Build:**
-- `Theme.luau` — the palette table from ART_BIBLE §2 as `Color3` values, plus font, corner
-  radius, stroke width, and standard tween info. **The only place a color is defined.**
-- `Ui.luau` — a small declarative builder: `Ui.new("Frame", {props}, {children})`, plus
-  helpers `Ui.Text`, `Ui.Button`, `Ui.Bar`, `Ui.Row`, `Ui.Screen`. Returns real Instances.
-  No reactivity framework; binding is `State.Observe` from B1.
-- Buttons handle hover/press/disabled states and an affordable/unaffordable variant.
-
-**Done when:**
-- [ ] Grep across `src/client/` finds zero `Color3.fromRGB` outside `Theme.luau`
-- [ ] Every helper is typed and works under `--!strict`
-- [ ] A 5-line example screen in a comment demonstrates the whole API
+**Done when:** first-time guidance advances only from authoritative state/events; phone/desktop
+layouts are clear; full carry/fridge and empty-stock queue states are legible; no polling except
+world-direction guidance.
 
 ---
 
-### [C2] Build Zone 1 — Shelf Ice
+### [B15] Corrected upgrade shop
 
-**Owner:** World (you or your collaborator, in Studio) · **Depends on:** F2 · **Channel:** 1
+**Owner:** Client · **Depends on:** A21, B10, UI kit
 
-**Read first:** `docs/DECISIONS.md` D-009, `docs/ARCHITECTURE.md` §7,
-`Config.Zones`, `docs/ART_BIBLE.md` §1, §3
+**You own:** shop controller/screen paths declared before work
 
-**You own:** `Workspace.World.shelf_ice`
+Present axe, carrier, refrigerator, and register tracks from replicated/config data. Requests go
+through Net; typed refusals map to user messages. No client affordability authority.
 
-**Build** — by hand in Studio, with an agent placing repetitive scatter via `execute_luau`
-where that's faster:
-- A flat plate with scattered ice blocks at **≤ 8 props per 100×100 studs**. ART_BIBLE §1 —
-  the emptiness is the style; resist decorating.
-- The outpost: 3–4 simple structures, a visibly distinct 20×20 sell platform, a trader
-  placeholder, and the shop trigger. Placed so a player spawning at the outpost sees cubs
-  within ~15 seconds of walking.
-- Apply the zone's lighting block from config.
-- A locked ice barrier toward Zone 2.
-
-**The instance names are the contract** (ARCHITECTURE §7). This zone must contain parts named
-exactly `SpawnZone`, `SellPad`, and `Barrier` — `CreatureService` and `SellService` find them
-by name. Renaming one is a contract change, not a tidy-up.
-
-**Done when:**
-- [ ] Part count ≤ 2,000, everything anchored, `CastShadow = false` on decorative parts
-- [ ] `SpawnZone`, `SellPad`, `Barrier` exist at the exact names, verified by `search_game_tree`
-- [ ] Walking from the far edge to the sell pad takes ≤ 20s at WalkSpeed 16 — measure it
-- [ ] A `screen_capture` from player height is committed to `docs/specs/zone-review.md`
-- [ ] Reads as Antarctic and sparse, not as a Roblox baseplate with boxes on it
-
-**Out of scope:** zones 2–5 (C3), final art models (C5).
+**Done when:** all four tracks update after purchase; max/unaffordable states are distinct;
+rapid taps cannot produce optimistic levels; no harpoon/boots/zone UI remains.
 
 ---
 
-### [E1] Test harness + unit tests
+### [B16] Worker computer UI
 
-**Owner:** QA · **Depends on:** F2, F3
+**Owner:** Client · **Depends on:** A25, B10, UI kit
 
-**You own:** `tests/**`, `scripts/test.sh`
+**You own:** worker controller/screen paths declared before work
 
-**Build:**
-- A minimal spec runner (~80 lines: `describe`/`it`/`expect`) — do not vendor TestEZ, we need
-  it callable from a single `execute_luau` string in Edit mode.
-- Specs for: `Format`, `TableUtil`, upgrade cost tables vs `docs/ECONOMY.md`, payout math,
-  inventory weight/partial-add edge cases, capacity curve, zone unlock ordering.
-- An **invariant suite** asserting `docs/ECONOMY.md` §7 rules 1–4 hold against the actual
-  Config tables. If a designer tunes a number that breaks a design invariant, tests fail.
-  This is the highest-value test in the project.
+Open only at the owned WorkerComputer. Show all three configured roles, but only implemented/
+available actions are enabled. Unlock, upgrade, and toggle through RequestWorkerAction.
 
-**Done when:**
-- [ ] `./scripts/test.sh` runs headless, exits non-zero on failure
-- [ ] ≥ 90% of pure logic modules have specs
-- [ ] The invariant suite fails loudly if someone sets a zone cost that breaks pacing
-- [ ] Test run takes < 10s
+**Done when:** remote plot computer cannot be used; server refusal corrects stale UI; stocker
+state persists; cashier/hunter are clearly upcoming rather than fake functional buttons.
 
 ---
 
-### [V1] Slice verification
+### [C8] Eight plot shells
 
-**Owner:** QA · **Depends on:** all of M1, P1 · **Channel:** 1
+**Owner:** World · **Depends on:** F5 · **Studio claim:** `Workspace.World.Plots`
 
-**Build:** an automated slice run under `start_stop_play` that drives a simulated player through
-the entire loop and asserts it: spawn → locate nearest creature → swing until dead → confirm
-drops entered the pack → repeat until full → walk to the sell pad → sell → confirm cash →
-purchase one upgrade of each track → confirm effects applied → save → reload profile →
-confirm everything persisted. Then the same with two simulated players, asserting their
-state stays independent.
+Build Plot01–Plot08 with every exact marker in ARCHITECTURE §7. Match route lengths, usable area,
+queue capacity, and hunt access. Geometry can be placeholder quality but markers are final
+contracts.
 
-Report measured values against `docs/ECONOMY.md` §4: time-to-first-sell, cash/min, kills per
-trip, walk-back duration. If time-to-first-sell exceeds 90s, that is a failure (ECONOMY §7
-rule 5), not a note.
-
-**Done when:** the whole loop passes unattended from one command; both-player independence
-asserted; measured pacing committed to `docs/specs/slice-metrics.md`; any deviation over 15%
-from the ECONOMY §4 table filed as a D1 input.
+**Done when:** PlotService validator accepts all eight; simultaneous spawn points do not overlap;
+measured route spread is within ECONOMY's fairness invariant; no sell pad remains in the loop.
 
 ---
 
-### [V2] Feel check — the one thing that isn't automatable
+### [C9] Shared hunting wilderness
 
-**Owner:** You · **Depends on:** V1 · **Est:** 10 minutes
+**Owner:** World · **Depends on:** F5 · **Studio claim:** `Workspace.World.HuntingGround`
 
-Everything else on this board an agent can verify. It cannot tell you whether swinging feels
-good. Run `./scripts/studio.ps1`, play the slice, and answer five questions in the PR:
+Turn the blockout adjacency into snowy wilderness with multiple equivalent entrances, distributed
+spawn area, occlusion, terrain variation, and no customer traffic. Preserve a clear visual route
+home.
 
-1. Does the swing feel right at 0.6s, or does it want to be faster/heavier?
-2. Is the walk back boring at WalkSpeed 16, or is it the right amount of friction?
-3. Three trips from the next pack upgrade — do you *want* it, or does it feel far?
-4. Did you know where to sell without being told?
-5. Where did you get bored? Timestamp it.
+**Done when:** it reads as wilderness rather than lawn/backyard; all plot round trips meet
+fairness; creatures stay in SpawnZone; streaming does not hide the nearest return landmark.
 
-These five answers are the highest-value input D1 receives. M2 art work can proceed in
-parallel; **M2 tuning cannot start until this exists.**
+---
+
+### [C10] Functional store fixtures/routes
+
+**Owner:** World · **Depends on:** C8 · **Studio claim:** plot fixture geometry
+
+Build refrigerator, unload/pickup markers, customer route, bounded queue points, register operator
+zone, counter/cash origin, WorkerComputer, and HunterDropoff on all plots.
+
+**Done when:** customer state machine can complete every route; players cannot trigger adjacent
+plot zones; fixtures communicate use without dense text.
+
+---
+
+### [C11] Slice assets
+
+**Owner:** World/Tech Art · **Depends on:** F5
+
+**You own:** asset folders named in ARCHITECTURE §2
+
+Create blocky studded axes, wooden carrier/rack, meat representatives, customer, worker
+placeholder, and cash pieces. Axes expose `AxeGrip` and configured Swing animation.
+
+**Done when:** assets load by exact config name; visual bounds are consistent; meat is stylized and
+non-graphic; mobile part budgets pass.
+
+---
+
+### [C12] Store-loop art integration audit
+
+**Owner:** World/QA · **Depends on:** C8–C11, B12, B13
+
+Capture fixed views of all plots, every hunting entrance, empty/full carrier, refrigerator
+unload, customer queue, register, counter pile, and cash flight. Validate exact markers, route
+fairness, palette, streaming, collisions, visual pool/part caps, and phone readability.
+
+**Done when:** the corrected slice looks like one coherent game; no plot has an art-created
+gameplay advantage; no legacy sell/trader/harpoon prop communicates a false action.
+
+---
+
+### [E4] V2 pure tests
+
+**Owner:** QA · **Depends on:** F5, A16, A18, A23
+
+Test migration, mixed meat/variants, partial carry→fridge transfer, capacity, reservation
+exactly-once behavior, checkout integer value, queue bounds, and every ECONOMY §10 invariant
+that can be pure.
+
+---
+
+### [E5] Exploit/integration tests
+
+**Owner:** QA · **Depends on:** A22–A24, E4
+
+Test foreign-plot interaction, remote spam, customer destruction in every state, profile unload,
+simultaneous collection ticks, visual deletion, and save/rejoin with fridge and unclaimed cash.
+
+---
+
+### [V3] One-player corrected slice
+
+**Owner:** QA · **Depends on:** all corrected M1 implementation/art jobs
+
+Drive join → plot → kill → carry → unload → customer reserve/take/queue → operate register →
+cash spawn → collect → upgrade → save/rejoin. Record every ECONOMY §4 target.
+
+---
+
+### [V4] Eight-player verification
+
+**Owner:** QA · **Depends on:** V3
+
+Fill all plots, assert ownership/state isolation, route fairness, customer isolation, shared-ground
+spawn distribution, server heartbeat, client FPS, and cleanup after churn.
+
+---
+
+### [V5] Human feel check
+
+**Owner:** Gedeon · **Depends on:** V3
+
+Play ten minutes and answer: Does tap combat remain acceptable after the trial? Does carrying look
+rewarding? Is unloading obvious? Does the queue make sense? Is standing at the register satisfying?
+Does cash pickup feel magnetic and valuable? Where did boredom first appear?

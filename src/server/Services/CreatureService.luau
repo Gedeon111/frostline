@@ -24,7 +24,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConfig = require(Shared.Config.GameConfig)
 local Creatures = require(Shared.Config.Creatures)
-local Zones = require(Shared.Config.Zones)
+local Plots = require(Shared.Config.Plots)
 local Signal = require(Shared.Util.Signal)
 local Log = require(Shared.Util.Log)
 
@@ -74,6 +74,54 @@ local function getTemplate(tier: any): Model?
 	end
 	local base = creatures:FindFirstChild("bear_base")
 	return (base and base:IsA("Model")) and base or nil
+end
+
+--[[
+	Parts whose top edge counts as "the shoulder", most specific first.
+
+	`bear_base` is a Roblox-style rig, so UpperTorso is the real reference.
+	Torso covers R6-style rigs and Body covers simple Part assemblies.
+]]
+local SHOULDER_PARTS = { "UpperTorso", "Torso", "Body" }
+
+-- How far up and down to probe for ground at a spawn point. Not a gameplay
+-- number — it only bounds the search, and 200 studs covers any plausible gap
+-- between a SpawnZone marker and the terrain under it.
+local GROUND_PROBE = 200
+
+--[[
+	The template's authored shoulder height, in studs.
+
+	`Config.Creatures.shoulderHeight` means height AT THE SHOULDER, not total
+	height. On a quadruped the head sits well above the shoulder, so dividing by
+	the bounding box (which is what this used to do) leaves every creature short
+	— measured at ~30% for snow_cub — and the error grows with tier, because it
+	is proportional. titan_bear was arriving under 10 studs against a spec of 14.
+
+	Falls back to total height when no recognised torso exists, so a future
+	template with an unknown bone layout still spawns at a sane size instead of
+	erroring or spawning at zero.
+]]
+local function authoredShoulderHeight(model: Model): number
+	local lowest = math.huge
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then
+			lowest = math.min(lowest, d.Position.Y - d.Size.Y * 0.5)
+		end
+	end
+	if lowest == math.huge then
+		return 0
+	end
+
+	for _, name in ipairs(SHOULDER_PARTS) do
+		local part = model:FindFirstChild(name, true)
+		if part and part:IsA("BasePart") then
+			return (part.Position.Y + part.Size.Y * 0.5) - lowest
+		end
+	end
+
+	local _, size = model:GetBoundingBox()
+	return size.Y
 end
 
 local function buildPlaceholder(tier: any): Model
@@ -134,11 +182,20 @@ local function spawnOne(tierId: string, zoneId: string, position: Vector3): Mode
 	local model: Model
 	if template then
 		model = template:Clone()
-		-- Scale the shared base to this tier's size. ScaleTo handles Motor6D
-		-- rigs, so the animations keep working at any scale.
-		local _, size = model:GetBoundingBox()
-		if size.Y > 0 then
-			model:ScaleTo(tier.shoulderHeight / size.Y)
+		-- Scale the shared base so its SHOULDER lands on the tier's
+		-- shoulderHeight. ScaleTo handles Motor6D rigs, so animations keep
+		-- working at any scale.
+		--[[
+			ScaleTo sets scale ABSOLUTELY (1 = as authored), but the measurement
+			below is taken at the template's CURRENT scale. If a template was
+			saved at anything other than 1 — bear_base is at ~1.29 — dividing the
+			target by the measured shoulder lands at `target / currentScale`
+			instead of `target`. Multiplying the current scale back in cancels it,
+			and the expression is correct for a template at scale 1 too.
+		]]
+		local shoulder = authoredShoulderHeight(model)
+		if shoulder > 0 then
+			model:ScaleTo(model:GetScale() * (tier.shoulderHeight / shoulder))
 		end
 	else
 		model = buildPlaceholder(tier)
@@ -163,7 +220,40 @@ local function spawnOne(tierId: string, zoneId: string, position: Vector3): Mode
 	end
 
 	if model.PrimaryPart then
-		model:PivotTo(CFrame.new(position + Vector3.new(0, tier.shoulderHeight * 0.5, 0)))
+		--[[
+			Sit the model ON the ground rather than guessing at half its height.
+
+			This used to offset by `shoulderHeight * 0.5` as a stand-in for half
+			the model height. Those are different numbers for any rig whose head
+			clears its shoulder, and they diverged further once scaling was
+			corrected — leaving creatures either buried or hovering. Measuring the
+			actual gap between the pivot and the lowest part is exact and works
+			for any template.
+		]]
+		-- Find the real ground. `sampleSpawnPoint` samples inside the SpawnZone
+		-- volume, so its Y is the marker part's, not the terrain's — trusting it
+		-- directly buried creatures by ~0.8 studs on the current map.
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { folder }
+		local hit = workspace:Raycast(
+			position + Vector3.new(0, GROUND_PROBE, 0),
+			Vector3.new(0, -GROUND_PROBE * 2, 0),
+			params
+		)
+		local groundY = if hit then hit.Position.Y else position.Y
+
+		model:PivotTo(CFrame.new(position))
+		local pivotY = model:GetPivot().Position.Y
+		local lowest = math.huge
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("BasePart") then
+				lowest = math.min(lowest, d.Position.Y - d.Size.Y * 0.5)
+			end
+		end
+		if lowest < math.huge then
+			model:PivotTo(CFrame.new(Vector3.new(position.X, groundY + (pivotY - lowest), position.Z)))
+		end
 	end
 	model.Parent = folder
 
@@ -227,16 +317,29 @@ function CreatureService.Damage(model: Model, amount: number, killer: Player?): 
 
 	local tier = Creatures.Get(info.tierId)
 	if tier and killer then
-		local drops = tier.dropCount
-		if info.variant == "golden" then
-			-- Golden multiplies VALUE, not quantity (ECONOMY §1) — more meat
-			-- would just overflow the pack and hide the reward.
-			drops = tier.dropCount
-		end
-		local added = InventoryService.TryAdd(killer, info.tierId, drops)
-		if added < drops then
-			-- The kill still counts. Losing it to a full pack feels like theft.
-			Log.info("Creature", "%s pack full: %d/%d meat", killer.Name, added, drops)
+		--[[
+			Drops go in as MEAT, not as a creature tier (D-017).
+
+			The variant is resolved here, once, through Creatures.MeatIdFor — a
+			golden kill yields `frost_cut_golden`, which carries its own value
+			in Config.Meat. That is why quantity does not change for a variant:
+			ECONOMY §2 requires the variant to be worth more per item rather
+			than to drop more items, since more meat would just overflow the
+			carrier and hide the reward instead of paying it.
+
+			This line previously passed `info.tierId` into an inventory keyed by
+			meat id, so every kill silently produced nothing.
+		]]
+		local meatId = Creatures.MeatIdFor(info.tierId, info.variant)
+		if meatId then
+			local drops = tier.dropCount
+			local added = InventoryService.TryAdd(killer, meatId, drops)
+			if added < drops then
+				-- The kill still counts. Losing it to a full carrier feels like theft.
+				Log.info("Creature", "%s carrier full: %d/%d meat", killer.Name, added, drops)
+			end
+		else
+			Log.warn("Creature", "tier '%s' yields no meat id", info.tierId)
 		end
 	end
 
@@ -269,6 +372,47 @@ function CreatureService.IsAlive(model: Model): boolean
 	return info ~= nil and info.alive
 end
 
+--[[
+	Every live creature whose pivot sits inside `box` (D-015 hitbox combat).
+
+	`box` is a CFrame at the box centre; `size` its full extents. A point is
+	inside when each component of its box-local offset is within half that size —
+	the standard OBB test, done here rather than with GetPartBoundsInBox because
+	creatures are Models and we want the registry's authoritative `alive` flag,
+	not whatever parts happen to be streamed in.
+
+	Sorted nearest-first from `box.Position` and truncated to `limit`, so the cap
+	drops the far creatures rather than an arbitrary hash-order selection — two
+	players swinging into the same crowd should hit the same bears.
+]]
+function CreatureService.GetAliveInBox(box: CFrame, size: Vector3, limit: number): { Model }
+	local half = size * 0.5
+	local found: { { model: Model, d: number } } = {}
+
+	for model, info in pairs(living) do
+		if info.alive and model.Parent then
+			local pivot = model:GetPivot().Position
+			local local_ = box:PointToObjectSpace(pivot)
+			if math.abs(local_.X) <= half.X
+				and math.abs(local_.Y) <= half.Y
+				and math.abs(local_.Z) <= half.Z
+			then
+				table.insert(found, { model = model, d = (pivot - box.Position).Magnitude })
+			end
+		end
+	end
+
+	table.sort(found, function(a, b)
+		return a.d < b.d
+	end)
+
+	local out: { Model } = {}
+	for i = 1, math.min(#found, limit) do
+		table.insert(out, found[i].model)
+	end
+	return out
+end
+
 function CreatureService.CountAlive(): number
 	local n = 0
 	for _, info in pairs(living) do
@@ -279,15 +423,67 @@ function CreatureService.CountAlive(): number
 	return n
 end
 
-function CreatureService.GetSpawnRegion(zoneId: string): BasePart?
-	local zone = Zones.Get(zoneId)
-	local world = workspace:FindFirstChild("World")
-	local zoneFolder = world and world:FindFirstChild(zoneId)
-	if not (zone and zoneFolder) then
+--[[
+	The one shared hunting ground (D-017).
+
+	V1 resolved a spawn region per zone folder. There are no zones now — GDD §4
+	has eight private plots around a single wilderness everyone shares, so there
+	is exactly one region and every creature spawns in it.
+
+	DELIBERATELY TOLERANT ABOUT WHERE IT LIVES. ARCHITECTURE §7 names the folder
+	`HuntingGround`, but the wilderness that already exists in the place is a
+	257 x 495 stud `SpawnZone` under `World.shelf_ice` — built before the reset,
+	and perfectly good as a hunting area. Demanding the new name would delete a
+	working world to satisfy a spelling.
+
+	So: prefer the contract name, then fall back to any `SpawnZone` under World,
+	and say which one was used. Renaming the folder later is a one-word change
+	in Studio that this will silently start preferring.
+
+	`zoneId` survives as a parameter and as a CreatureInfo field purely so
+	respawn can put a creature back where it came from. It is not a progression
+	gate and nothing checks membership against it.
+]]
+function CreatureService.GetSpawnRegion(_zoneId: string?): BasePart?
+	local world = workspace:FindFirstChild(Plots.WorldFolderName)
+	if not world then
 		return nil
 	end
-	local region = zoneFolder:FindFirstChild(zone.spawnRegion)
-	return (region and region:IsA("BasePart")) and region or nil
+
+	-- Preferred: the ARCHITECTURE §7 path.
+	local ground = world:FindFirstChild(Plots.HuntingGroundName)
+	local region = ground and ground:FindFirstChild(Plots.HuntingSpawnZone)
+	if region and region:IsA("BasePart") then
+		return region
+	end
+
+	-- Fallback: the largest SpawnZone anywhere under World. Largest rather than
+	-- first, because a leftover marker from an old layout should never win over
+	-- the actual hunting area, and folder order is not dependable.
+	local best: BasePart? = nil
+	local bestArea = 0
+	for _, descendant in ipairs(world:GetDescendants()) do
+		if descendant:IsA("BasePart") and descendant.Name == Plots.HuntingSpawnZone then
+			local area = descendant.Size.X * descendant.Size.Z
+			if area > bestArea then
+				best, bestArea = descendant, area
+			end
+		end
+	end
+
+	if best then
+		Log.once(
+			"spawnregion",
+			"Creature",
+			"using %s as the hunting ground (%.0f x %.0f studs). ARCHITECTURE §7 expects World.%s.%s",
+			best:GetFullName(),
+			best.Size.X,
+			best.Size.Z,
+			Plots.HuntingGroundName,
+			Plots.HuntingSpawnZone
+		)
+	end
+	return best
 end
 
 -- ── Wander ──────────────────────────────────────────────────────────────────
@@ -332,33 +528,45 @@ function CreatureService.Init()
 end
 
 function CreatureService.Start()
-	for _, zoneId in ipairs(Zones.Order) do
-		local zone = Zones.Get(zoneId)
-		if zone then
-			local region = CreatureService.GetSpawnRegion(zoneId)
-			if not region then
-				-- Zone geometry not built yet (C2/C3). Skip rather than fail:
-				-- the rest of the game must stay bootable.
-				Log.once("nozone_" .. zoneId, "Creature", "no spawn region for '%s', skipping", zoneId)
-			else
-				local taken: { Vector3 } = {}
-				local placed = 0
-				for _ = 1, zone.population do
-					local point = sampleSpawnPoint(region, taken)
-					if not point then
-						break
-					end
-					table.insert(taken, point)
-					if spawnOne(zone.creatureTier, zoneId, point) then
-						placed += 1
-					end
+	--[[
+		One population in one shared ground, rather than a loop over five zones.
+
+		The old version warned four times on every boot about zones that were
+		never going to exist. Silence about a thing that cannot happen is worth
+		more than a warning nobody can action.
+	]]
+	do
+		local region = CreatureService.GetSpawnRegion(nil)
+		if not region then
+			-- The wilderness is hand-built and may not exist yet. Skip rather
+			-- than fail: the rest of the game must stay bootable, and the store
+			-- half can be worked on without any creatures at all.
+			Log.warn(
+				"Creature",
+				"no %s.%s in %s — nothing will spawn",
+				Plots.HuntingGroundName,
+				Plots.HuntingSpawnZone,
+				Plots.WorldFolderName
+			)
+		else
+			local tierId = Creatures.StarterTier
+			local taken: { Vector3 } = {}
+			local placed = 0
+			for _ = 1, GameConfig.HuntingGroundPopulation do
+				local point = sampleSpawnPoint(region, taken)
+				if not point then
+					break
 				end
-				if placed < zone.population then
-					Log.warn("Creature", "%s: placed %d/%d — spawn region too small for %d-stud spacing",
-						zoneId, placed, zone.population, GameConfig.MinSpawnSpacing)
+				table.insert(taken, point)
+				if spawnOne(tierId, Plots.HuntingGroundName, point) then
+					placed += 1
 				end
-				Log.info("Creature", "%s: %d x %s", zoneId, placed, zone.creatureTier)
 			end
+			if placed < GameConfig.HuntingGroundPopulation then
+				Log.warn("Creature", "placed %d/%d — spawn region too small for %d-stud spacing",
+					placed, GameConfig.HuntingGroundPopulation, GameConfig.MinSpawnSpacing)
+			end
+			Log.info("Creature", "hunting ground: %d x %s", placed, tierId)
 		end
 	end
 

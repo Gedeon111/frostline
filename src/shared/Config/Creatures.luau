@@ -1,101 +1,68 @@
 --!strict
 --[[
-	CREATURES — source: docs/ECONOMY.md §1, tints/scale from docs/ART_BIBLE.md §4.
+	CREATURES — V2 (D-017). Source: ECONOMY §2, tints/scale from ART_BIBLE.
 
-	The column that actually matters is cash-per-weight (value*drops / weight*drops,
-	i.e. meatValue/meatWeight). It rises ~3x per tier, and that is the real
-	progression curve — a trip in Black Ice is worth ~60x a trip in Shelf Ice at
-	the same pack size. ECONOMY §7 rule 1 requires >= 2.5x per tier; below that a
-	new zone doesn't feel like an upgrade. Tests assert it (E1).
+	ONE TIER. GDD §12 scopes the corrected slice to a single creature, and the
+	four higher tiers from the five-zone design are gone with the zones they
+	belonged to. They return as "additional creature regions" after the slice
+	proves fun, each with its own meat ids — not as a table of numbers waiting
+	for a game that no longer exists.
+
+	The V1 shape carried `meatWeight` and `meatValue` directly on the creature.
+	V2 carries a `meatId` instead, and weight and value live on the meat
+	(Config.Meat). That indirection is the whole point of ECONOMY §2's rule that
+	a rare variant must map to a DISTINCT meat id: a golden kill has to yield
+	genuinely different inventory, not a recoloured model over ordinary stock.
 ]]
 
 local Types = require(script.Parent.Parent.Types)
+local Palette = require(script.Parent.Palette)
 
 local Creatures = {}
 
 Creatures.Tiers = {
+	--[[
+		SNOW CUB — the starter, retained verbatim from the prototype because it
+		already worked in Studio (ECONOMY §2). 30 HP, 2 drops.
+
+		Weight 2 and value 5 per item now live on `frost_cut`, so a kill is
+		still 4 weight and 10 base value.
+	]]
 	snow_cub = {
 		id = "snow_cub",
 		displayName = "Snow Cub",
 		hp = 30,
 		dropCount = 2,
-		meatWeight = 2,
-		meatValue = 5,            -- 2.5 cash/weight
+		meatId = "frost_cut",
 		respawnSeconds = 8,
 		modelName = "snow_cub",
 		shoulderHeight = 4,
-		tint = Color3.fromHex("E8E2D4"),   -- bone
-	} :: Types.CreatureTier,
-
-	frost_bear = {
-		id = "frost_bear",
-		displayName = "Frost Bear",
-		hp = 120,
-		dropCount = 3,
-		meatWeight = 3,
-		meatValue = 19,           -- 6.33 cash/weight (2.53x tier 1 — see note below)
-		respawnSeconds = 8,
-		modelName = "frost_bear",
-		shoulderHeight = 6,
-		tint = Color3.fromHex("DCE6EC"),
-	} :: Types.CreatureTier,
-
-	ice_bear = {
-		id = "ice_bear",
-		displayName = "Ice Bear",
-		hp = 450,
-		dropCount = 4,
-		meatWeight = 4,
-		meatValue = 65,           -- 16.3
-		respawnSeconds = 15,
-		modelName = "ice_bear",
-		shoulderHeight = 8,
-		tint = Color3.fromHex("B8D4E4"),
-	} :: Types.CreatureTier,
-
-	aurora_bear = {
-		id = "aurora_bear",
-		displayName = "Aurora Bear",
-		hp = 1800,
-		dropCount = 5,
-		meatWeight = 5,
-		meatValue = 240,          -- 48.0
-		respawnSeconds = 15,
-		modelName = "aurora_bear",
-		shoulderHeight = 11,
-		tint = Color3.fromHex("9FD8C4"),
-	} :: Types.CreatureTier,
-
-	titan_bear = {
-		id = "titan_bear",
-		displayName = "Titan Bear",
-		hp = 7500,
-		dropCount = 6,
-		meatWeight = 6,
-		meatValue = 900,          -- 150.0
-		respawnSeconds = 25,
-		modelName = "titan_bear",
-		shoulderHeight = 14,
-		tint = Color3.fromHex("3A3F4A"),
+		tint = Palette.bone,
 	} :: Types.CreatureTier,
 }
 
--- Tier order, low to high. Zones reference tiers by id; this is for tests and UI.
-Creatures.Order = { "snow_cub", "frost_bear", "ice_bear", "aurora_bear", "titan_bear" }
+Creatures.Order = { "snow_cub" }
+
+-- The tier that spawns in the shared hunting ground. One entry today; when
+-- regions return, this becomes a per-region lookup rather than a constant.
+Creatures.StarterTier = "snow_cub"
 
 --[[
-	Variants (M2, job A9). Rolled per spawn.
+	Variants, rolled per spawn.
 
 	Golden is the screenshot moment and the reason someone posts about the game.
-	A9 must guarantee at least one per zone within a reasonable window rather than
-	rolling raw 2% — pure chance produces dry spells that players read as a bug.
+	It overrides the MEAT ID, so the value difference is carried by the stock a
+	customer actually buys rather than by a multiplier applied somewhere else.
+
+	A9 must guarantee at least one per reasonable window rather than rolling raw
+	2% — pure chance produces dry spells that players read as a bug.
 ]]
 Creatures.Variants = {
 	golden = {
 		id = "golden",
 		chance = 0.02,
-		valueMultiplier = 10,
-		tint = Color3.fromHex("F2B035"),   -- gold
+		meatId = "frost_cut_golden",
+		tint = Palette.gold,
 		emissive = true,
 	} :: Types.CreatureVariant,
 }
@@ -104,23 +71,26 @@ function Creatures.Get(tierId: string): Types.CreatureTier?
 	return (Creatures.Tiers :: any)[tierId]
 end
 
--- The progression curve, exposed so tests and tuning don't recompute it.
-function Creatures.CashPerWeight(tierId: string): number
-	local t = Creatures.Get(tierId)
-	if not t then return 0 end
-	return t.meatValue / t.meatWeight
+function Creatures.GetVariant(variantId: string): Types.CreatureVariant?
+	return (Creatures.Variants :: any)[variantId]
 end
 
-function Creatures.CashPerKill(tierId: string): number
-	local t = Creatures.Get(tierId)
-	if not t then return 0 end
-	return t.meatValue * t.dropCount
-end
+--[[
+	Which meat a kill yields, honouring the variant.
 
-function Creatures.WeightPerKill(tierId: string): number
-	local t = Creatures.Get(tierId)
-	if not t then return 0 end
-	return t.meatWeight * t.dropCount
+	This is the one place the variant→meat mapping happens. CreatureService (A19)
+	calls it on death; nothing else should re-derive it, or a variant will end
+	up meaning two different things in two services.
+]]
+function Creatures.MeatIdFor(tierId: string, variantId: string?): string?
+	if variantId then
+		local variant = Creatures.GetVariant(variantId)
+		if variant then
+			return variant.meatId
+		end
+	end
+	local tier = Creatures.Get(tierId)
+	return tier and tier.meatId or nil
 end
 
 return Creatures

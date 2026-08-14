@@ -1,65 +1,63 @@
-# HUNT — Antarctic Hunt-Sell-Upgrade Simulator (Roblox)
+# FROSTLINE — Arctic Hunting & Store Simulator (Roblox)
 
-Working title: **FROSTLINE** (final name TBD, see `docs/DECISIONS.md` D-004).
+FROSTLINE is a low-input Roblox simulator about running a meat shop beside a shared fictional
+Arctic wilderness. Hunt frost bears with an axe, carry visible meat home, stock your
+refrigerator, serve customers at the register, collect cash from the counter, and grow the store
+with upgrades and workers.
 
-A manual-control Roblox simulator: hunt ice bears on the Antarctic shelf, haul meat back to
-the trading outpost, sell it, upgrade your gear, unlock colder and more dangerous zones.
-Low-poly, high-contrast, deliberately minimal UI — the stripped-down look of hyper-casual
-ad games, not the pastel clutter of Pet Simulator.
+Eight players receive one private plot each and share the same hunting ground. Auto-Swing is
+available for the first ten minutes, then requires its gamepass; the free control remains
+tap-per-swing.
 
-## Read this first (in order)
+## Read first
 
-| Doc | What it is |
+| Document | Purpose |
 |---|---|
-| `docs/GDD.md` | What the game is. Loop, content, progression, scope. |
-| `docs/ARCHITECTURE.md` | Folder layout, service pattern, remote contract, data schema. **Frozen contract.** |
-| `docs/ECONOMY.md` | Every number in the game. Config tables derive from this. |
-| `docs/MONETIZATION.md` | **The business.** Multiplier stack, companions, 22 SKUs, retention ladder. |
-| `docs/ANALYTICS.md` | Funnel and event schema — where players quit and where cash goes. |
-| `docs/ART_BIBLE.md` | Palette, silhouette rules, UI kit, model specs. |
-| `docs/AUTOMATION.md` | The four channels agents ship through — toolchain, Open Cloud, browser, generative. |
-| `docs/WORKFLOW.md` | **How workers operate.** File ownership, DoD, PR rules. Read before touching code. |
-| `docs/DECISIONS.md` | Decision log. Changing a frozen contract requires an entry here. |
-| `tasks/BOARD.md` | The master job list. Status, dependencies, assignments. |
+| `docs/GDD.md` | Approved fantasy, loops, map, workers, scope. |
+| `docs/ARCHITECTURE.md` | V2 target services, remotes, profile schema, and world markers. |
+| `docs/ECONOMY.md` | Value flow, pacing targets, and invariants. |
+| `docs/MONETIZATION.md` | Approved Auto-Swing trial/pass and commercial guardrails. |
+| `docs/ANALYTICS.md` | Corrected store funnel and economy reconciliation. |
+| `docs/ART_BIBLE.md` | Wilderness/store visual language, assets, UI, and motion. |
+| `docs/AUTOMATION.md` | Tooling and verification channels. |
+| `docs/WORKFLOW.md` | Ownership, frozen contracts, tests, branches, and handoffs. |
+| `docs/DECISIONS.md` | Decision history; D-017 is the product reset. |
+| `tasks/BOARD.md` | Active jobs, dependencies, and superseded work. |
 
-## For workers
+## Current contract status
 
-You have been assigned a job ID (e.g. `A3`). Find it in `tasks/`. That packet is your whole
-brief: what to read, what files you own, what "done" means. Do not edit files outside your
-ownership list. Do not change anything in `src/shared/Config/` or `src/shared/Remotes.luau`
-unless you are the Architect.
+D-017 approves the corrected game. The checked-in shared Luau modules still implement the
+legacy v1 sell-pad contract. Corrected-slice feature work is blocked until job `F5` atomically
+lands the v2 shared contract and profile migration.
 
-Before declaring a job blocked, read `docs/AUTOMATION.md`. Studio runs headlessly, assets
-upload over HTTP, the creator dashboard is a website, and meshes and audio are generated.
-Almost nothing here actually needs hands.
+Existing Data, Currency, Creature, Combat, State, Upgrade, Analytics, Net, and UI foundations
+are reused where their new packets say so. SellService, the trader, harpoon ToolService work,
+and five-zone-first progression are not part of the corrected slice.
 
-## How this is built — hybrid (D-010)
+## Worker rules
 
-**Files are the source of truth. Studio verifies.**
+Workers receive one complete packet from `tasks/*.md` and own only its listed paths. Pull and
+re-read the packet before work. Do not edit `src/shared/**` except in an Architect-owned
+contract job. Use the Studio WorkLog for geometry or a long Studio session. Never merge your
+own job.
 
-| | |
+## Build workflow
+
+Files are authoritative; Studio verifies.
+
+| Surface | Method |
 |---|---|
-| Write code | `src/**`, synced by Rojo. Normal branches and PRs. |
-| Verify | Roblox Studio MCP — playtest, console, screenshots, read-only `execute_luau` |
-| World geometry | hand-built in Studio, **not** in git — coordinate via `ServerStorage.WorkLog` |
-| Place | **"hunt for money"** — `83234958310651` (universe `10694878805`) |
-
-**Scripts flow one direction: files → Studio.** Never edit a script in Studio; Rojo overwrites
-it on the next sync, silently. Don't enable Team Create for scripts — it fights Rojo.
+| Scripts | edit `src/**` on a job branch/worktree |
+| Sync/build | Rojo |
+| Tests/playtest | Roblox Studio and project test harness |
+| World geometry | Studio-owned, coordinated through `ServerStorage.WorkLog` |
+| Place | “hunt for money” — `83234958310651` (universe `10694878805`) |
 
 ```bash
-rokit install                # rojo, selene, stylua, run-in-roblox
-rojo serve                   # live sync into an open place
-./scripts/check.sh           # stylua + selene + build
+rokit install
+rojo serve
+./scripts/check.sh
 rojo build -o Hunt.rbxlx
 ```
 
-## Status
-
-**67 jobs.** `F1` (scaffold) and `F2` (contract freeze) are **done** — `src/shared/` holds the
-frozen `Types`, `Remotes`, and six `Config` modules, and `rojo build` produces a place.
-`P7` was cancelled by D-010.
-
-Next: **`F3`** (core utils, independent), **`F4`** (loader + Net). **`G1`** (store-page
-creative) still gates the most revenue and depends on nothing.
-
+Never edit synced scripts in Studio; Rojo overwrites them.

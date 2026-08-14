@@ -16,6 +16,24 @@ return {
 	HitstopSeconds = 0.04,      -- client-side only, cosmetic
 	FeedbackRadius = 120,       -- studs; CombatFeedback goes to nearby players only
 
+	-- ── Hitbox combat (D-015) ──
+	-- There is no prompt. A box is carried in front of the character and every
+	-- live creature inside it is struck once per SwingCooldown.
+	--
+	-- The SERVER rebuilds this box from the character's own CFrame and picks the
+	-- victims itself. The client nominates one creature purely to say "I am
+	-- swinging, and here is roughly what at" — it never supplies the list, so a
+	-- crafted client cannot widen its own cleave.
+	HitboxSize = Vector3.new(12, 8, 14),  -- studs, W x H x D
+	HitboxForwardOffset = 7,              -- studs ahead of HumanoidRootPart
+	MaxCleaveTargets = 8,                 -- bound on one swing. See ECONOMY note in D-015.
+
+	-- ── Auto-swing trial (D-016) ──
+	-- Free auto-swing for this long after a player's FIRST EVER join, then the
+	-- `autoswing` gamepass is required. Wall-clock from `firstJoinAt`, not
+	-- playtime — deliberate, see D-016. Default swinging is tap-per-swing.
+	AutoSwingTrialSeconds = 600,
+
 	-- ── Movement ──
 	BaseWalkSpeed = 16,
 	MaxWalkSpeed = 28,          -- hard ceiling; above this the camera feels loose
@@ -29,36 +47,52 @@ return {
 	AutosaveInterval = 60,
 	DataStoreName = "Frostline_Player",
 	DataStoreScope = "live",    -- P4/tests override to "test" — never share keys
-	ProfileVersion = 1,
+	ProfileVersion = 2,         -- D-017. v1 profiles migrate in DataService.
 
 	-- ── Replication ──
 	StateReplicationHz = 10,    -- one batched StateChanged per tick, never per change
-	ZoneCheckHz = 5,            -- region polling for zone membership + sell pads
 
 	-- ── Rate limits (per player, per remote) ──
-	-- Applied centrally in Net (F4). No service writes its own rate check.
+	-- Applied centrally in Net. No service writes its own rate check.
+	--
+	-- V2 has four inbound remotes. The V1 entries for RequestSell,
+	-- RequestUnlockZone, RequestTeleport, RequestHatch, RequestEquip,
+	-- RequestFuse, RequestClaim and RequestOffer are deliberately absent —
+	-- their remotes no longer exist, and a limit for a remote nobody creates
+	-- reads like the feature is merely disabled rather than gone.
 	RateLimits = {
 		RequestSwing = { budget = 10, perSeconds = 1 },
-		RequestSell = { budget = 4, perSeconds = 1 },
 		RequestPurchase = { budget = 6, perSeconds = 1 },
-		RequestUnlockZone = { budget = 4, perSeconds = 1 },
-		RequestTeleport = { budget = 3, perSeconds = 1 },
-		RequestHatch = { budget = 6, perSeconds = 1 },
-		RequestEquip = { budget = 10, perSeconds = 1 },
-		RequestFuse = { budget = 4, perSeconds = 1 },
-		RequestClaim = { budget = 6, perSeconds = 1 },
-		RequestOffer = { budget = 3, perSeconds = 1 },
+		-- Toggling is a deliberate human action; 4/s is generous for a button and
+		-- still stops a loop from writing the profile every frame.
+		RequestSetting = { budget = 4, perSeconds = 1 },
+		-- Unlock, upgrade, enable and disable all arrive here, and a player
+		-- flipping a worker on and off is a legitimate burst.
+		RequestWorkerAction = { budget = 6, perSeconds = 1 },
 		_default = { budget = 5, perSeconds = 1 },
 	},
 
 	-- ── Creature spawning ──
+	-- How many creatures live in the ONE shared hunting ground (D-017). This
+	-- was per-zone population in V1; there is a single wilderness now, and
+	-- eight players hunt it at once, so this is a population for the whole
+	-- server rather than per player.
+	HuntingGroundPopulation = 25,
 	MinSpawnSpacing = 12,       -- studs; clumped creatures read as a bug
 	CreatureWanderRadius = 30,
 	CreatureWanderInterval = { min = 4, max = 8 },
 
-	-- ── Onboarding (ECONOMY §7 rule 5 — a release blocker, not a nice-to-have) ──
-	TargetSecondsToFirstSell = 90,
-	SellArrowShowsAtPackFraction = 0.5,
+	--[[
+		── Onboarding (ECONOMY §4 release targets) ──
+
+		The corrected slice is measured as STAGES, not one instant sale. V1
+		records median and worst case for each with one player and with eight.
+		These are targets for that measurement, never values a service reads.
+	]]
+	TargetSecondsToFirstKill = 30,
+	TargetSecondsToFirstStock = 60,
+	TargetSecondsToFirstCheckout = 90,
+	TargetSecondsToFirstCollection = 100,
 
 	-- ── Analytics ──
 	-- Kill switch. Analytics must never be the reason the game breaks, so it
