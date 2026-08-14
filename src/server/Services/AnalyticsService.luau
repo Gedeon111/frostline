@@ -10,7 +10,10 @@
 	that tells you whether people quit before their first sell.
 
 	Three numbers this exists to answer (ANALYTICS §7):
-	  1. % of joins reaching first_sell — under 80% and the opening is broken
+	  1. % of joins reaching first_collection — under 80% and the opening is
+	     broken. That is the first COLLECTED store sale, not the first kill:
+	     a player who hunts but never completes the store loop has not played
+	     the game (GDD §9).
 	  2. D1 retention — the discovery algorithm's input, so it gates traffic
 	  3. Starter Pack conversion
 
@@ -25,7 +28,6 @@ local RbxAnalytics = game:GetService("AnalyticsService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameConfig = require(Shared.Config.GameConfig)
-local Zones = require(Shared.Config.Zones)
 local Log = require(Shared.Util.Log)
 
 local DataService = require(ServerScriptService.Services.DataService)
@@ -40,21 +42,33 @@ local AnalyticsService = {}
 	milestone on rejoin and the funnel quietly becomes a measure of how often
 	people rejoin rather than how far they get.
 ]]
+--[[
+	Rewritten for D-017. The V1 steps measured a game that no longer exists:
+	`first_sell` was the sell pad, `zone_2` was the five-zone gate, and
+	`first_hatch`/`first_rebirth` belong to deferred designs. None of them could
+	ever fire again, which would have left the funnel silently reporting a 0%
+	completion rate rather than an error.
+
+	These follow GDD §9's first-session shape, and `first_collection` is the one
+	that matters: ECONOMY and GDD both make the first COLLECTED store sale a
+	release blocker. Stocking and checkout are the two steps before it, so a
+	drop-off tells you which half of the store loop lost the player.
+]]
 local ONBOARDING = {
 	joined = 1,
 	first_kill = 2,
-	first_sell = 3,
-	first_upgrade = 4,
-	first_hatch = 5,
-	zone_2 = 6,
-	first_rebirth = 7,
+	first_stock = 3,
+	first_checkout = 4,
+	first_collection = 5,
+	first_upgrade = 6,
+	first_worker = 7,
 }
 
 -- Session funnel — ANALYTICS §4. Repeats every session, so it is memory-scoped.
 local SESSION_FUNNEL = "session"
 local SESSION_STEPS = {
 	session_start = 1,
-	sold_once = 2,
+	collected_once = 2, -- was sold_once; there is no sell action under D-017
 	offer_shown = 3,
 	offer_purchased = 4,
 	session_5min = 5,
@@ -72,16 +86,21 @@ local function customFields(player: Player): { [string]: string }
 		return {}
 	end
 
-	-- Highest unlocked zone, which is the progression cut §7 actually needs.
-	local zone = Zones.StartingZone
-	for _, zoneId in ipairs(Zones.Order) do
-		if data.unlockedZones[zoneId] then
-			zone = zoneId
-		end
-	end
+	--[[
+		The progression cut. D-013 picked zone / payer / progress, and the zone
+		half no longer exists — D-017 replaced five gated zones with one shared
+		hunting ground.
+
+		The refrigerator is the best single proxy for where a player got to:
+		ECONOMY §5 constraint 4 makes fridge capacity the deliberate bottleneck,
+		so its level tracks real progress through the loop. That answers the
+		same question D-013 wanted — conversion for players who never cleared
+		the first bottleneck versus those who did.
+	]]
+	local progress = ("fridge_%d"):format(data.upgrades.fridge)
 
 	return {
-		[Enum.AnalyticsCustomFieldKeys.CustomField01.Name] = zone,
+		[Enum.AnalyticsCustomFieldKeys.CustomField01.Name] = progress,
 		-- receipts is keyed by receipt id, not an array, so # is always 0.
 		[Enum.AnalyticsCustomFieldKeys.CustomField02.Name] = (next(data.receipts) ~= nil) and "payer" or "free",
 		[Enum.AnalyticsCustomFieldKeys.CustomField03.Name] = ("rebirth_%d"):format(data.rebirths),
@@ -241,9 +260,16 @@ function AnalyticsService.Start()
 	]]
 	local Currency = require(ServerScriptService.Services.CurrencyService)
 	Currency.Changed:Connect(function(player: Player, _new: number, delta: number, reason: string)
-		if reason == "sell" then
-			AnalyticsService.Milestone(player, "first_sell")
-			AnalyticsService.SessionStep(player, "sold_once")
+		--[[
+			`store_collection` is the ONLY source of store revenue under D-017
+			(ECONOMY §1) — cash does not move at death, unload, reservation or
+			checkout. So watching CurrencyService still catches the release-
+			blocking milestone without this file knowing anything about
+			refrigerators or registers.
+		]]
+		if reason == "store_collection" then
+			AnalyticsService.Milestone(player, "first_collection")
+			AnalyticsService.SessionStep(player, "collected_once")
 		elseif reason:match("^upgrade_") then
 			AnalyticsService.Milestone(player, "first_upgrade")
 		end
@@ -261,13 +287,14 @@ function AnalyticsService.Start()
 		end
 	end)
 
-	local Zone = require(ServerScriptService.Services.ZoneService)
-	Zone.ZoneUnlocked:Connect(function(player: Player, zoneId: string)
-		if zoneId == Zones.Order[2] then
-			AnalyticsService.Milestone(player, "zone_2")
-		end
-		AnalyticsService.Event(player, "zone_unlocked", 1)
-	end)
+	--[[
+		The zone-unlock funnel event is gone with ZoneService (D-017).
+
+		Its replacements are the store-loop milestones — first stock, first
+		checkout, first collection — and they belong to the services that
+		produce them (A18, A22, A23), not here. This service stays an emitter;
+		it does not reach into other services to infer their events.
+	]]
 
 	Players.PlayerRemoving:Connect(function(player)
 		local data = DataService.GetData(player)
