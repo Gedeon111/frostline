@@ -73,6 +73,11 @@ return {
 	},
 
 	-- ── Creature spawning ──
+	-- How many creatures live in the ONE shared hunting ground (D-017). This
+	-- was per-zone population in V1; there is a single wilderness now, and
+	-- eight players hunt it at once, so this is a population for the whole
+	-- server rather than per player.
+	HuntingGroundPopulation = 25,
 	MinSpawnSpacing = 12,       -- studs; clumped creatures read as a bug
 	CreatureWanderRadius = 30,
 	CreatureWanderInterval = { min = 4, max = 8 },
