@@ -48,11 +48,16 @@ Almost nothing here actually needs hands.
 it on the next sync, silently. Don't enable Team Create for scripts — it fights Rojo.
 
 ```bash
-rokit install                # rojo, selene, stylua, run-in-roblox
+rokit install                # rojo, wally, selene, stylua, run-in-roblox
+wally install                # React Lua + UI Labs (Packages/, gitignored)
 rojo serve                   # live sync into an open place
-./scripts/check.sh           # stylua + selene + build
+./scripts/check.sh           # wally + stylua + selene + build
 rojo build -o Hunt.rbxlx
 ```
+
+**UI is React Lua** (D-011), confined to `src/client/UI/`. Preview components without
+playtesting: install the [UI Labs](https://create.roblox.com/store/asset/14293316215) plugin
+and open it — it finds `UI.Stories.Frostline.storybook` on its own.
 
 ## Status
 
