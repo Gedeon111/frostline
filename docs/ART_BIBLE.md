@@ -1,7 +1,12 @@
 # Art Bible — FROSTLINE
 
-The visual thesis: **an Antarctic ad-game, not a Roblox simulator.** Sparse, high-contrast,
-almost empty. If a screenshot could be mistaken for Pet Simulator, it's wrong.
+The visual thesis (revised by D-014): **loud shapes, quiet colours.** Chunky studded Roblox
+geometry — the silhouette language players already read as a Roblox game — rendered in a
+sparse, high-contrast, almost-empty Antarctic palette.
+
+The differentiator is **not** the geometry. It is the colour restraint and the emptiness. A
+screenshot may be mistaken for a Roblox simulator by its *shapes*; if it is mistaken for one
+by its *colours*, that's wrong.
 
 ## 0. The one deliberate inconsistency (D-008)
 
@@ -16,9 +21,14 @@ rarity, and the **Starter Pack takeover** (job G12) is permitted to be loud once
 ## 1. Rules
 
 1. **Emptiness is the style.** Wide flat white with 3 objects in frame beats 30. Prop density
-   target: ≤ 8 visible props per 100×100 stud area outside the outpost.
+   target: ≤ 8 visible props per 100×100 stud area outside the outpost. **Unchanged by D-014** —
+   chunkier objects do not license more of them.
 2. **Silhouette over detail.** Every creature and prop must be identifiable as a black
-   shape. No surface texture beyond `SmoothPlastic`, `Glass`, and `Ice`.
+   shape. Build from **assembled Parts in the studded idiom** (D-014): few, large, chunky
+   blocks with visible studs, exaggerated proportions, hard edges. Detail lives in the
+   silhouette, never in surface noise. `Plastic` (studded) is the default material;
+   `SmoothPlastic`, `Glass` and `Ice` remain available where a surface should read as
+   smooth or transparent.
 3. **Two-color-plus-accent per zone.** Snow value, shadow value, one saturated accent. That's it.
 4. **No gradients, no bevels, no drop shadows in UI.** Flat fills, 1px strokes, hard corners
    at 4px radius max.
@@ -26,6 +36,11 @@ rarity, and the **Starter Pack takeover** (job G12) is permitted to be loud once
 6. **No decals, no images in UI where a shape will do.** Icons are geometry.
 
 ## 2. Palette
+
+**This table is now the whole differentiator.** D-014 traded away the restrained *geometry*
+and kept the restrained *colour*, so every entry below is load-bearing in a way it wasn't
+before. A studded blocky game in these nine colours is a distinct object; a studded blocky
+game in saturated primaries is one of ten thousand. Adding a colour here needs an RFC.
 
 | Token | Hex | Use |
 |---|---|---|
@@ -54,13 +69,19 @@ Aurora Basin `aurora` · Black Ice `blood` on `night`.
 
 Transitions are tweened by `ZoneService` over 1.5s when a player crosses a zone boundary.
 
-## 4. Creature spec (job C4 — needs a human modeller)
+## 4. Creature spec (job C4 — Part assembly per D-014)
 
-- **Budget:** ≤ 400 tris, ≤ 12 parts, one `PrimaryPart`, **no Humanoid**.
+- **Budget:** ≤ 14 Parts, one `PrimaryPart`, **no Humanoid** (D-003). The old ≤ 400-triangle
+  budget applied to a generated mesh and no longer means anything — count Parts.
+- **Construction:** assembled blocks, studded `Plastic`, hard edges, no bevels. Exaggerate
+  proportions rather than adding pieces: one oversized paw block beats four knuckle blocks.
 - **Silhouette:** blocky quadruped, oversized front paws, low head, short snout, no visible
   ears. Reads as "bear" at 100 studs from behind.
-- **Scale:** cub 4 studs at shoulder → titan 14 studs. Same mesh, scaled + retinted, except
-  Titan which gets extra shoulder geometry.
+- **Scale:** cub 4 studs at shoulder → titan 14 studs. Same assembly, scaled + retinted,
+  except Titan which gets extra shoulder geometry.
+
+C4 no longer needs a modeller. A Part assembly is buildable from `execute_luau`, is diffable
+as code, and regenerates deterministically — which is why D-014 makes it the default.
 - **Tint per tier:** `bone` → `#DCE6EC` → `#B8D4E4` → `#9FD8C4` (aurora, emissive eyes) →
   `#3A3F4A` with `blood` rim.
 - **Eyes:** two small emissive parts. Always on. This is the "fictional creature" tell.

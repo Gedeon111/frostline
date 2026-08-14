@@ -205,7 +205,11 @@ and job `A10` will find it.
 **Replicated subset** (what the client is allowed to know, sent via `StateChanged`):
 `cash`, `pack`, `packWeight`, `packCapacity`, `upgrades`, `unlockedZones`, `rebirths`,
 `companions`, `equipped`, `indexClaimed`, `quests`, `season`, `boosts`, `offers`,
-`multiplierBreakdown`. Everything else stays server-side.
+`multiplierBreakdown`, plus `autoSwing`, `autoSwingTrialEndsAt`, `autoSwingEnabled` (D-016)
+and `reducedEffects` (B4). Everything else stays server-side.
+
+`autoSwing` and `autoSwingTrialEndsAt` are **derived, not stored** — computed per flush from
+`firstJoinAt` and pass ownership, so a trial cannot go stale mid-session.
 
 **Two schema rules that prevent the classic bugs in this genre:**
 - **Boosts store an expiry timestamp, never remaining duration.** Remaining-time is wrong the
@@ -258,7 +262,7 @@ It also returns a `breakdown` table so the HUD can show the player exactly what'
 |---|---|
 | `Net` | remote wrappers, request/response |
 | `State` | local mirror of replicated state + `Changed` signal per key |
-| `HarvestController` | ProximityPrompt binding, hold-to-swing input, target tracking |
+| `HarvestController` | swing hitbox — scans for creatures in front of the character, fires `RequestSwing` on cooldown (D-015; no prompt, no input) |
 | `HudController` | cash counter, pack weight bar, zone label, sell-direction arrow |
 | `ShopController` | shop screen open/close, purchase requests, affordability tinting |
 | `ZoneController` | barrier prompts, unlock confirm, teleport menu |

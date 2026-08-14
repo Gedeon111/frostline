@@ -22,23 +22,80 @@ capacity 32. `main` is `24c49a6`, clean and in sync with both remotes.
 Shipped and verified: `Data` `State` `Currency` `Inventory` `Creature` `Combat` `Sell`
 `Zone` `Upgrade` `Analytics` on the server; `Net` `State` `Harvest` on the client.
 
+**Combat was rebuilt on 2026-08-14 — see D-015 and D-016.** ProximityPrompts are gone. A
+hitbox rides in front of the character and hits **every** creature inside it (server-side
+cleave, capped at 8). Swinging is **tap-per-swing**, with auto-swing free for the first 10
+minutes and then behind the `autoswing` pass, toggleable either way. `B2` as originally
+specced is superseded; `HarvestController` was rewritten. **Written but NOT yet verified
+in-engine** — a playtest is the next thing that should happen.
+
 **Next up, in order:**
 
-1. **B3 `HudController`** — the loop is playable but invisible; nothing shows cash or
-   pack weight. Wire `State.Observe("cash", …)` and `("packWeight"/"packCapacity", …)`
-   into Dionis's `Hud`, which takes `Cash` as a prop. Soft-blocked on C1 landing.
-2. **B4 `EffectsController`** — hit flash, floating numbers, hitstop. No dependency on
-   Dionis; can start any time.
-3. **E1 test harness** — the only M1 job with no owner in flight.
-4. **V1** then **V2** (yours: ten minutes, five written answers).
+0. **Reconnect the Rojo plugin in Studio** (Gedeon, one click). The server was restarted, which
+   drops the plugin, so nothing has synced since. Everything below is blocked on it, and code
+   that looks absent in Studio is almost always this — see WORKFLOW §8.
+1. **Verify D-015/D-016 in a playtest** — trial state, toggle round-trip, cleave counts.
+2. **Creature scale fix** — `CreatureService:141` divides `shoulderHeight` by the model's
+   *total* height, so every creature is ~30% undersized and the error scales with tier
+   (`titan_bear` lands under 10 studs instead of 14). Diagnosed, not applied.
+3. **B4 `EffectsController`** — hit flash, floating numbers, hitstop. No dependency on
+   Dionis; the biggest jump in perceived quality available.
+4. **B3 `HudController`** — still soft-blocked on C1. Now also owns the **pack-full** signal
+   (D-015 removed the prompt that carried it) and the **auto-swing toggle + trial countdown**
+   (D-016). Render the toggle from `autoSwingEnabled`, never `autoSwing`.
+5. **E1 test harness** — the only M1 job with no owner in flight.
+6. **V1** then **V2** (yours: ten minutes, five written answers).
+
+**E1 found a real invariant violation on its first run (2026-08-14).** ECONOMY §7 rule 2 —
+*"a player can afford the next pack upgrade within 3 trips at any point in the curve"* — does
+not hold against the shipped config:
+
+| upgrade | cash/trip in Shelf Ice | cost | trips needed |
+|---|---|---|---|
+| pack 1→2 | 50 | 150 | 3.00 ✓ |
+| pack 2→3 | 80 | 285 | **3.56** ✗ |
+| pack 3→4 | 110 | 542 | **4.93** ✗ |
+
+The model is ECONOMY's own: a trip is one full pack, so cash/trip = capacity × cash-per-weight
+(2.5 for `snow_cub`). §4's table independently agrees — it puts a Zone 1 player at pack levels
+1–4, so these levels *are* meant to be bought in Shelf Ice.
+
+**Not fixed, deliberately.** Either `Upgrades.costs` comes down or rule 2 is rewritten, and
+both are Economy Designer calls needing an RFC (`docs/ECONOMY.md` is not Architect-owned).
+The suite is committed **failing**, which is what the E1 packet asks for — it fails loudly
+rather than being tuned to agree with whatever the config happens to say.
+
+**`ECONOMY.md` is now wrong and nobody has fixed it.** §4's pacing table and §7 rule 5's
+90-second time-to-first-sell blocker were both computed against single-target swings. Cleave
+yields up to 8 kills per swing. **V1 must re-measure; D1 owns the retune.** No numbers were
+invented in the meantime.
+
+`Products.luau`'s `autoswing` entry needs **no change** — D-015 proposed re-scoping it, D-016
+withdrew that, and "Swing for you while in range" is literally true again.
 
 **Two standing hazards** — both have already cost a session each:
 
 - **Never `git add -A` in this repo.** Dionis's UI work sits uncommitted on the same
   NAS working copy. Commit explicit file lists only.
-- **No job has passed lint/format.** `rokit install` cannot reach GitHub from this
-  machine, so `stylua`, `selene` and `wally` are unavailable. The DoD in `WORKFLOW.md`
-  §5 is unmet across the board — this is a real debt, not a formality.
+- **No job has passed lint/format.** `stylua`, `selene` and `wally` are still missing.
+  **Cause found 2026-08-14:** Norton's "Web/Mail Shield" was re-signing TLS with a root
+  that git, curl and rokit don't trust. Norton's HTTPS scanning is now off and GitHub is
+  reachable — but `rokit install` still fails, because one run costs **more than the
+  entire 60/hr anonymous GitHub API budget**. Waiting cannot fix it; a token in
+  `~/.rokit/auth.toml` is required (`rokit authenticate github --token …`, zero scopes is
+  enough). **Owner: Gedeon.** Until then the DoD in `WORKFLOW.md` §5 stays unmet.
+
+**Rojo is not affected by the above** and never was. A working `rojo` 7.7.0-rc.1 sits at
+`~/.aftman/tool-storage/rojo-rbx/rojo/7.7.0-rc.1/rojo.exe` and `Packages/` is already
+populated. Do **not** delete `~/.aftman` until `rokit install` succeeds — it holds the only
+working rojo on the machine.
+
+**Fixed 2026-08-14: `assets/` was never mapped.** ARCHITECTURE §2 documents
+`assets/** → ReplicatedStorage.Assets`, but no such entry existed in
+`default.project.json` — not removed by anyone, never written by F1. So
+`ReplicatedStorage.Assets` did not exist, and `CreatureService` had been silently falling
+back to its grey placeholder box for every creature. The mapping is now added. Any job
+that assumed `Assets` resolved (C4, C5, G6) was building against a folder that wasn't there.
 
 ---
 
@@ -70,7 +127,7 @@ The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MON
 |---|---|---|---|---|---|
 | P1 | Test harness inside Studio (`Tests.RunAll` via `execute_luau`) | Architect | 1 | F1 | TODO |
 | P2 | Open Cloud client: API key, place/DataStore access | Architect | 2,3 | F1 | TODO |
-| P3 | Asset generation conventions (`generate_mesh` / `insert_asset`) | World | 1 | F1 | TODO |
+| P3 | Asset conventions — **Part assembly** per D-014, not `generate_mesh` | World | 1 | F1 | TODO |
 | P4 | Integration tests during play | QA | 1 | P1 | TODO |
 | P5 | Storefront: gamepasses, products, place settings, badges | Architect | 3 | P2 | TODO |
 | P6 | Release checklist + publish | Architect | 1,2 | P1,P4,P5 | TODO |
@@ -103,10 +160,10 @@ Target: a player can join, kill cubs, fill a pack, sell, buy 3 upgrades, rejoin 
 | B1 | Client bootstrap, `Net`, `State` mirror | Client | F4 | **DONE** |
 | B2 | `HarvestController` — prompt binding, hold-to-swing, target tracking | Client | B1, A5 | **DONE** |
 | B3 | `HudController` — cash, pack bar, zone label, sell arrow | Client | B1, C1 | TODO |
-| B4 | `EffectsController` — hit flash, particles, floating numbers, hitstop | Client | B1, C1 | TODO |
+| B4 | `EffectsController` — hit flash, particles, floating numbers, hitstop | Client | B1 | REVIEW |
 | C1 | UI kit — React Lua per D-011 (`App`, `Theme`, primitives) | Dionis | F1 | IN-PROGRESS |
 | C2 | Build Zone 1 in Studio — outpost, sell pad, spawn markers | Dionis | F2 | TODO |
-| E1 | Test harness + economy/validation unit tests | QA | F2, F3 | TODO |
+| E1 | Test harness + economy/validation unit tests — **2 real failures, see below** | QA | F2, F3 | REVIEW |
 | V1 | Automated slice verification — full loop driven in real Studio | QA | all M1, P1 | TODO |
 | V2 | **You:** 10-minute feel check, five written answers | You | V1 | TODO |
 

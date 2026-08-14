@@ -20,9 +20,10 @@ onto colder ice where the bears are bigger and worth more.
             up        + toast  damage       higher value
 ```
 
-1. **Hunt** — Walk up to a bear. Hold the ProximityPrompt (or click) to swing. Bears have
-   HP; your tool level sets damage per swing. Bears die, drop meat, meat auto-collects into
-   your pack.
+1. **Hunt** — Walk into a bear. A hitbox rides in front of you and everything inside it is
+   struck automatically, once per swing cooldown — no prompt, no keypress (D-015). Bears have
+   HP; your tool level sets damage per swing. One swing hits **every** bear in the box, so
+   walking into a group melts it. Bears die, drop meat, meat auto-collects into your pack.
 2. **Carry** — Meat has *weight*. Your pack has a capacity. Full pack = you stop collecting
    and must walk back. This is the friction that makes the loop a loop.
 3. **Sell** — Walk into the outpost sell-zone. A trader NPC prompt sells your whole pack.
@@ -32,8 +33,13 @@ onto colder ice where the bears are bigger and worth more.
 5. **Unlock** — Cash milestones open new zones. New zone = new bear tier = ~3.5x value.
    Loop restarts one rung higher.
 
-**Manual, not idle.** No auto-collect in the base game. The player's hands are on the
-character the whole time. (An auto-swing gamepass is the monetization escape hatch — see §7.)
+**Positioning, not clicking.** Swinging is automatic (D-015), but nothing else is: the player
+still has to walk to the bears, decide when the pack is full enough to be worth the trip, and
+walk back. The skill was never in pressing the button — it was in the trip. What D-015 removed
+is friction, not agency.
+
+The base game still has no auto-**collect** and no auto-**sell**; those remain gamepasses.
+Auto-Swing as a SKU is superseded and re-scoped to speed and reach — see §7 and D-015.
 
 ## 3. Content — 5 zones
 
@@ -80,8 +86,9 @@ Neither change costs anything design-wise. Both are settled; don't reopen them p
 - Kill is loud: bear ragdolls, meat pops out in an arc, `x4` counter ticks.
 - Walking back must be **short** — never more than ~20s from the far edge of a zone to a
   sell point. Zone 2+ get satellite sell posts.
-- Pack-full is legible: bar turns red, a soft "clunk" plays, prompt on further bears reads
-  `PACK FULL`.
+- Pack-full is legible: bar turns red and a soft "clunk" plays. **D-015 removed the prompt
+  that used to read `PACK FULL`**, so the HUD is now the only surface that can say it — this
+  is a handoff to B3, and until B3 lands there is no pack-full signal at all.
 - Sell is the payoff: whole-pack sell, single big number, coin sound, no confirmation dialog.
 
 ## 7. Companions — the collection layer

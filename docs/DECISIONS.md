@@ -327,4 +327,155 @@ who did"* — that needs **zone** and **payer**. The third slot goes to a coarse
 
 ---
 
+### D-014 · 2026-08-14 · ACCEPTED · Blocky studded geometry, restrained palette
+
+**Decision (Gedeon's call).** Assets are built as **assembled Parts in the chunky studded
+Roblox idiom** — the silhouette language of *Steal a Brainrot* and its neighbours — while
+keeping ART_BIBLE §2's restrained Antarctic palette and §1's sparse prop density.
+**Loud shapes, quiet colours.**
+
+This withdraws one sentence from ART_BIBLE §1: *"an Antarctic ad-game, not a Roblox
+simulator... if a screenshot could be mistaken for Pet Simulator, it's wrong."* The **shape**
+language may now be mistaken for one. The **colour** language may not.
+
+**Why:** two reasons, and the first is already sitting in the repo.
+
+1. **The UI shipped this way.** C1's `Theme.luau` is built explicitly as "the three-layer
+   studded look" with stud-texture overlays on every control. The document was out of date,
+   not the work.
+2. **Blocky studded geometry is what the audience reads as a Roblox game.** The
+   differentiator was never the geometry — it is the palette and the emptiness. Both survive
+   this change unchanged.
+
+**What changes — and this is the P3 decision, made here rather than deferred:**
+- **Part assembly is the default** for props, tools and creatures. `generate_mesh` returns
+  smooth organic single forms with no studs, which is the wrong idiom under this decision;
+  it becomes the exception (organic shapes that blocks genuinely cannot express), not the rule.
+- ART_BIBLE §1 rules 1–2, §2 preamble and §4 creature spec updated to match.
+
+**What explicitly does NOT change:**
+- **The palette (§2).** Two-colour-plus-accent per zone stands, unaltered.
+- **Prop density (§1 rule 1).** ≤ 8 props per 100×100 studs stands. Emptiness is still the style.
+- **The store-page inversion (§0).** Still loud there — now differently loud.
+
+**This is not the fifth foundation reversal D-011 warned about.** D-002 → D-009 → D-010 →
+D-011 were all changes to the authoring model. This one touches no code, no config, no type,
+no remote, and no tooling — it is an art-direction call, and `src/` is untouched by it.
+
+**Blast radius:** `ART_BIBLE.md` §1/§2/§4; jobs C4, C5, C7, G6 and P3; `assets/**`.
+
+**Handoff to C1 (Dionis):** `Theme.Color.Cash` is `RGB(0, 255, 9)` and `Theme.Color.Bundle`
+is `RGB(255, 246, 0)`. Neither exists in the §2 palette — and under this decision the palette
+is precisely the half that was kept. Nearest tokens are `aurora #4FE0A8` and `gold #F2B035`.
+Flagged, not changed: `src/client/UI/**` is C1's and the work is uncommitted.
+
+---
+
+### D-015 · 2026-08-14 · ACCEPTED · Hitbox combat replaces the ProximityPrompt
+
+**Decision (Gedeon's call).** There is no prompt and no keypress. A box is carried in front
+of the character (`GameConfig.HitboxSize`, offset `HitboxForwardOffset`), and every live
+creature inside it is struck once per `SwingCooldown`. **Full cleave** — all creatures in the
+box take damage, bounded by `MaxCleaveTargets` (8).
+
+Supersedes GDD §2's "Hold the ProximityPrompt (or click) to swing."
+
+**Why:** it is the genre-native control scheme, and tapping E on each of 25 cubs is friction
+the player never asked for. Walking into a crowd and watching it melt is the core pleasure of
+this category.
+
+**The remote contract does NOT change.** `RequestSwing(creature: Model)` still means "I am
+swinging, and here is roughly what at." Every server check in ARCHITECTURE §3 still applies.
+No RFC was needed on `Remotes.luau` — only `GameConfig` gained keys.
+
+**The cleave is server-side, and that is the security-relevant part.** The obvious
+implementation — client sends one `RequestSwing` per creature it overlaps — fails twice: six
+bears would fire six remotes in a frame and trip the `budget = 10, perSeconds = 1` rate limit,
+and it would let a crafted client nominate its own victim list. Instead the client names one
+creature, and `CombatService` rebuilds the hitbox from the character's **server-side CFrame**
+and picks the targets itself. The client's nomination is a cadence hint, never a list.
+
+The zone gate is re-checked **per struck creature**, not just the nominated one. Without that,
+cleave becomes the way to farm a locked zone from across its border.
+
+**Economy consequence — this is a real cost, stated plainly.** One swing now yields up to 8
+kills' worth of drops instead of 1. `ECONOMY.md` §4's pacing table and the 90-second
+time-to-first-sell target (§7 rule 5, a release blocker) were both computed against
+single-target swings and are now wrong. **This is a D1 input, and V1 must re-measure it.**
+The cap exists so the worst case is a known 8x rather than unbounded.
+
+**Monetization: `autoswing` must be re-scoped.** `Products.luau` sells Auto-Swing at 399
+Robux — *"Swing for you while in range"* — which the base game now does for free. That SKU
+has nothing left to sell and is the 4th-priciest pass. Re-scope it to sell **speed and reach**
+instead (halved cooldown, wider box), which is what this genre's comparables actually charge
+for and which the player feels continuously rather than only while idle. Damage is already
+sold through the `harpoon` upgrade track, so speed and reach are unclaimed.
+
+**Not yet done — carried as open work:**
+- `Products.luau` / `MONETIZATION.md` §4: the Auto-Swing re-scope above.
+- Pack-full feedback. The prompt used to read `PACK FULL`; with no prompt there is nowhere to
+  say it. **Handoff to B3** — the HUD is now the only place that can.
+
+**Blast radius:** `GameConfig` (additive), `CombatService`, `CreatureService` (new
+`GetAliveInBox`), `HarvestController` (rewritten), GDD §2/§6, ARCHITECTURE §6, ECONOMY §4/§7,
+MONETIZATION §4, jobs B2 (superseded), A5, V1, D1.
+
+---
+
+### D-016 · 2026-08-14 · ACCEPTED · Auto-swing is a 10-minute trial, then a pass, with a toggle
+
+**Decision (Gedeon's call).** Swinging is **tap-per-swing** by default. Auto-swing — the
+hitbox firing on cooldown with no input — is granted free for the first **10 minutes** of a
+player's lifetime, after which it requires the `autoswing` gamepass. Either way the player can
+turn it **on and off** with a toggle, persisted in `settings`.
+
+**Supersedes D-015's monetization clause only.** D-015 re-scoped `autoswing` to sell speed and
+reach, because the base game had made automation free. That is withdrawn: automation is
+monetized again and the SKU's existing copy — *"Swing for you while in range"* — is literally
+true once more. Everything else in D-015 stands, including the hitbox, the server-side cleave,
+and the economy consequence.
+
+**Why a trial rather than a demo screenshot:** the player has to feel the difference. Ten
+minutes of frictionless play followed by tapping for every cub is a far stronger conversion
+argument than any store copy, and it front-loads the good experience during the window where
+D1 retention is decided.
+
+**Why tap-per-swing and not hold-to-swing** (the option not taken): maximum contrast. Hold is
+comfortable enough that the pass stops feeling necessary, which would leave the trial with
+nothing to sell.
+
+**Schema:** one additive field, `settings.autoSwing = true` (the toggle). **No new field is
+needed for the trial** — it derives from the existing `firstJoinAt` plus
+`GameConfig.AutoSwingTrialSeconds`, which keeps it a timestamp comparison and honours §4's
+rule that nothing stores remaining time. `ProfileStore:Reconcile()` backfills the setting, so
+there is no migration and no version bump (same pattern as D-012).
+
+**Wall-clock, not playtime.** The trial expires 10 minutes after first join, whether or not
+the player is online. Playtime-based would be fairer, but it needs a new accumulator and a
+tick, and the urgency of a wall-clock window is part of what makes a trial convert. Noted as
+a D1 tuning input if it proves too harsh.
+
+**Contract change — `RequestSetting`:** a new RemoteFunction,
+`(key: string, value: boolean) -> (ok, reason?)`, server-validated against an allow-list of
+settable keys. Needed here for the toggle, and B9's settings menu needs exactly this remote
+rather than one-off remotes per switch.
+
+**Replicated additions:** `autoSwing` (is it active *right now* — trial or pass, AND toggled
+on) and `autoSwingTrialEndsAt` (so the HUD can count the trial down, which is the conversion
+moment).
+
+**Enforceability, stated honestly.** Auto-swing **cannot be enforced** against a crafted
+client. `RequestSwing` carries intent only, so the server cannot tell "held the button" from
+"sent one every 0.6s". Rate limits and `SwingCooldown` already cap the *rate*, so an exploiter
+gains no damage advantage over a legitimate pass holder — they get the convenience free. This
+is inherent to the genre; the pass sells convenience to honest players. A12 should not waste
+effort trying to close it.
+
+**Blast radius:** `Remotes.luau` (new function — CONTRACT CHANGE), `GameConfig` (additive),
+`DataService` TEMPLATE, `StateService` REPLICATED, `HarvestController`, ARCHITECTURE §3/§4,
+GDD §2/§7, MONETIZATION §4, jobs B3 (the toggle button + trial countdown), A13 (real gamepass
+ownership — stubbed to `false` until then), B9.
+
+---
+
 <!-- Add new decisions below this line -->
