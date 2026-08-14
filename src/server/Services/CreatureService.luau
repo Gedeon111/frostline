@@ -22,9 +22,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local GameConfig = require(Shared.Config.GameConfig)
+
 local Creatures = require(Shared.Config.Creatures)
-local Zones = require(Shared.Config.Zones)
+local HuntingGround = require(Shared.Config.HuntingGround)
 local Signal = require(Shared.Util.Signal)
 local Log = require(Shared.Util.Log)
 
@@ -146,7 +146,7 @@ local function sampleSpawnPoint(region: BasePart, taken: { Vector3 }): Vector3?
 	-- Rejection sampling against MinSpawnSpacing. Clumped creatures read as a
 	-- bug rather than as wildlife, and they make one swing hit three targets.
 	local half = region.Size * 0.5
-	local minSq = GameConfig.MinSpawnSpacing * GameConfig.MinSpawnSpacing
+	local minSq = HuntingGround.MinSpawnSpacing * HuntingGround.MinSpawnSpacing
 
 	for _ = 1, 30 do
 		local offset = Vector3.new(
@@ -317,16 +317,29 @@ function CreatureService.Damage(model: Model, amount: number, killer: Player?): 
 
 	local tier = Creatures.Get(info.tierId)
 	if tier and killer then
-		local drops = tier.dropCount
-		if info.variant == "golden" then
-			-- Golden multiplies VALUE, not quantity (ECONOMY §1) — more meat
-			-- would just overflow the pack and hide the reward.
-			drops = tier.dropCount
-		end
-		local added = InventoryService.TryAdd(killer, info.tierId, drops)
-		if added < drops then
-			-- The kill still counts. Losing it to a full pack feels like theft.
-			Log.info("Creature", "%s pack full: %d/%d meat", killer.Name, added, drops)
+		--[[
+			Drops go in as MEAT, not as a creature tier (D-017).
+
+			The variant is resolved here, once, through Creatures.MeatIdFor — a
+			golden kill yields `frost_cut_golden`, which carries its own value
+			in Config.Meat. That is why quantity does not change for a variant:
+			ECONOMY §2 requires the variant to be worth more per item rather
+			than to drop more items, since more meat would just overflow the
+			carrier and hide the reward instead of paying it.
+
+			This line previously passed `info.tierId` into an inventory keyed by
+			meat id, so every kill silently produced nothing.
+		]]
+		local meatId = Creatures.MeatIdFor(info.tierId, info.variant)
+		if meatId then
+			local drops = tier.dropCount
+			local added = InventoryService.TryAdd(killer, meatId, drops)
+			if added < drops then
+				-- The kill still counts. Losing it to a full carrier feels like theft.
+				Log.info("Creature", "%s carrier full: %d/%d meat", killer.Name, added, drops)
+			end
+		else
+			Log.warn("Creature", "tier '%s' yields no meat id", info.tierId)
 		end
 	end
 
@@ -410,15 +423,67 @@ function CreatureService.CountAlive(): number
 	return n
 end
 
-function CreatureService.GetSpawnRegion(zoneId: string): BasePart?
-	local zone = Zones.Get(zoneId)
-	local world = workspace:FindFirstChild("World")
-	local zoneFolder = world and world:FindFirstChild(zoneId)
-	if not (zone and zoneFolder) then
+--[[
+	The one shared hunting ground (D-017).
+
+	V1 resolved a spawn region per zone folder. There are no zones now — GDD §4
+	has eight private plots around a single wilderness everyone shares, so there
+	is exactly one region and every creature spawns in it.
+
+	DELIBERATELY TOLERANT ABOUT WHERE IT LIVES. ARCHITECTURE §7 names the folder
+	`HuntingGround`, but the wilderness that already exists in the place is a
+	257 x 495 stud `SpawnZone` under `World.shelf_ice` — built before the reset,
+	and perfectly good as a hunting area. Demanding the new name would delete a
+	working world to satisfy a spelling.
+
+	So: prefer the contract name, then fall back to any `SpawnZone` under World,
+	and say which one was used. Renaming the folder later is a one-word change
+	in Studio that this will silently start preferring.
+
+	`zoneId` survives as a parameter and as a CreatureInfo field purely so
+	respawn can put a creature back where it came from. It is not a progression
+	gate and nothing checks membership against it.
+]]
+function CreatureService.GetSpawnRegion(_zoneId: string?): BasePart?
+	local world = workspace:FindFirstChild(HuntingGround.WorldFolderName)
+	if not world then
 		return nil
 	end
-	local region = zoneFolder:FindFirstChild(zone.spawnRegion)
-	return (region and region:IsA("BasePart")) and region or nil
+
+	-- Preferred: the ARCHITECTURE §7 path.
+	local ground = world:FindFirstChild(HuntingGround.FolderName)
+	local region = ground and ground:FindFirstChild(HuntingGround.SpawnRegionName)
+	if region and region:IsA("BasePart") then
+		return region
+	end
+
+	-- Fallback: the largest SpawnZone anywhere under World. Largest rather than
+	-- first, because a leftover marker from an old layout should never win over
+	-- the actual hunting area, and folder order is not dependable.
+	local best: BasePart? = nil
+	local bestArea = 0
+	for _, descendant in ipairs(world:GetDescendants()) do
+		if descendant:IsA("BasePart") and descendant.Name == HuntingGround.SpawnRegionName then
+			local area = descendant.Size.X * descendant.Size.Z
+			if area > bestArea then
+				best, bestArea = descendant, area
+			end
+		end
+	end
+
+	if best then
+		Log.once(
+			"spawnregion",
+			"Creature",
+			"using %s as the hunting ground (%.0f x %.0f studs). ARCHITECTURE §7 expects World.%s.%s",
+			best:GetFullName(),
+			best.Size.X,
+			best.Size.Z,
+			HuntingGround.FolderName,
+			HuntingGround.SpawnRegionName
+		)
+	end
+	return best
 end
 
 -- ── Wander ──────────────────────────────────────────────────────────────────
@@ -433,15 +498,15 @@ end
 ]]
 local function wanderLoop()
 	while true do
-		task.wait(GameConfig.CreatureWanderInterval.min)
+		task.wait(HuntingGround.WanderInterval.min)
 		for model, info in pairs(living) do
 			if info.alive and model.Parent then
 				local hum = model:FindFirstChildOfClass("Humanoid")
 				if hum and math.random() < 0.4 then
 					local offset = Vector3.new(
-						(math.random() * 2 - 1) * GameConfig.CreatureWanderRadius,
+						(math.random() * 2 - 1) * HuntingGround.WanderRadius,
 						0,
-						(math.random() * 2 - 1) * GameConfig.CreatureWanderRadius
+						(math.random() * 2 - 1) * HuntingGround.WanderRadius
 					)
 					hum:MoveTo(info.home + offset)
 				end
@@ -453,43 +518,55 @@ end
 -- ── Lifecycle ───────────────────────────────────────────────────────────────
 
 function CreatureService.Init()
-	folder = workspace:FindFirstChild("Creatures") :: Folder
+	folder = workspace:FindFirstChild(HuntingGround.RuntimeFolderName) :: Folder
 	if not folder then
 		folder = Instance.new("Folder")
-		folder.Name = "Creatures"
+		folder.Name = HuntingGround.RuntimeFolderName
 		folder.Parent = workspace
 	end
 	folder:ClearAllChildren() -- a stale set from a previous run isn't tracked
 end
 
 function CreatureService.Start()
-	for _, zoneId in ipairs(Zones.Order) do
-		local zone = Zones.Get(zoneId)
-		if zone then
-			local region = CreatureService.GetSpawnRegion(zoneId)
-			if not region then
-				-- Zone geometry not built yet (C2/C3). Skip rather than fail:
-				-- the rest of the game must stay bootable.
-				Log.once("nozone_" .. zoneId, "Creature", "no spawn region for '%s', skipping", zoneId)
-			else
-				local taken: { Vector3 } = {}
-				local placed = 0
-				for _ = 1, zone.population do
-					local point = sampleSpawnPoint(region, taken)
-					if not point then
-						break
-					end
-					table.insert(taken, point)
-					if spawnOne(zone.creatureTier, zoneId, point) then
-						placed += 1
-					end
+	--[[
+		One population in one shared ground, rather than a loop over five zones.
+
+		The old version warned four times on every boot about zones that were
+		never going to exist. Silence about a thing that cannot happen is worth
+		more than a warning nobody can action.
+	]]
+	do
+		local region = CreatureService.GetSpawnRegion(nil)
+		if not region then
+			-- The wilderness is hand-built and may not exist yet. Skip rather
+			-- than fail: the rest of the game must stay bootable, and the store
+			-- half can be worked on without any creatures at all.
+			Log.warn(
+				"Creature",
+				"no %s.%s in %s — nothing will spawn",
+				HuntingGround.FolderName,
+				HuntingGround.SpawnRegionName,
+				HuntingGround.WorldFolderName
+			)
+		else
+			local tierId = HuntingGround.StarterTierId
+			local taken: { Vector3 } = {}
+			local placed = 0
+			for _ = 1, HuntingGround.Population do
+				local point = sampleSpawnPoint(region, taken)
+				if not point then
+					break
 				end
-				if placed < zone.population then
-					Log.warn("Creature", "%s: placed %d/%d — spawn region too small for %d-stud spacing",
-						zoneId, placed, zone.population, GameConfig.MinSpawnSpacing)
+				table.insert(taken, point)
+				if spawnOne(tierId, HuntingGround.FolderName, point) then
+					placed += 1
 				end
-				Log.info("Creature", "%s: %d x %s", zoneId, placed, zone.creatureTier)
 			end
+			if placed < HuntingGround.Population then
+				Log.warn("Creature", "placed %d/%d — spawn region too small for %d-stud spacing",
+					placed, HuntingGround.Population, HuntingGround.MinSpawnSpacing)
+			end
+			Log.info("Creature", "hunting ground: %d x %s", placed, tierId)
 		end
 	end
 
