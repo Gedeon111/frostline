@@ -149,6 +149,45 @@ so it has no branches and no diffs. Coordinate world work through the WorkLog
 (`owns = { "Workspace.World.shelf_ice" }`) and expect no safety net if two people build the
 same zone.
 
+### ONE WORKING COPY. ONE ROJO SERVER. DO NOT USE WORKTREES.
+
+**Written after breaking Dionis's UI on 2026-08-14. This was my mistake and it was
+avoidable — it wasted his time mid-task and nearly destroyed two days of work.**
+
+`R:\hunt\frostline` is the working copy. `rojo serve` points at it and stays there. Do not
+create `git worktree`s for jobs, and do not repoint the Rojo server at another directory to
+"quickly verify" something.
+
+**Why it breaks, precisely.** A worktree checkout contains only **committed** files. Dionis's
+22 React UI modules were untracked, so they existed in the main working copy and nowhere
+else. I created a worktree for job F5, pointed Rojo at it, and Studio connected. Rojo did
+exactly what it is supposed to do — it made the place match the file tree it was serving —
+and `src/client/UI/` in that tree held nothing but a `.gitkeep`. It deleted all 22 modules
+plus `UIController` from the place, taking every UI Labs story with them.
+
+The files survived only because Rojo writes **files → Studio** and never the reverse. Nothing
+about the design guaranteed that; it was luck.
+
+**Three specific traps, all of which fired today:**
+
+1. **Uncommitted work is invisible to every other worktree.** Whatever someone has in
+   progress is exactly what a second worktree will delete from the place.
+2. **Restarting `rojo serve` disconnects the Studio plugin**, so every repoint needs a manual
+   reconnect, and the sync lands seconds later. Reading the datamodel in that gap shows stale
+   content and invites a wrong diagnosis. It cost three false conclusions in one afternoon.
+3. **Rojo relinquishes, it does not clean up.** Remove a path from `default.project.json` and
+   Rojo stops managing those instances — it does not delete them. That orphaned a second
+   duplicate `Assets` folder in `ReplicatedStorage`, and `FindFirstChild` then picked between
+   two same-named siblings by luck.
+
+**If a branch genuinely must be verified in the engine**, ask the person at the keyboard
+first, confirm nobody is mid-task, and put the server back afterwards. Do not decide that
+tradeoff alone — the cost lands on someone else.
+
+**And commit early.** Untracked work is not a work-in-progress state, it is a single point of
+failure. The C1 UI kit sat untracked for two days of active editing with no history and no
+remote; that is what turned a Rojo misconfiguration into a near-miss on real work.
+
 ## 7. You can do more than you think
 
 Read `docs/AUTOMATION.md` before declaring anything blocked. You write code in `src/` and sync
