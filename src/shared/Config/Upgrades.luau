@@ -199,6 +199,31 @@ function Upgrades.GetCheckoutSeconds(level: number): number
 	return (record and record.checkoutSeconds) or 0
 end
 
+--[[
+	The visible model at a level, searching DOWNWARD.
+
+	Only some levels define a `modelName` — the axe swaps at 1, 4, 7 and 10, so
+	a level-6 player is still carrying the level-4 steel axe. Reading
+	`levels[6].modelName` directly returns nil and would leave them empty-handed,
+	which is why nothing should index that field without going through here.
+
+	Returns nil only if no level at or below this one names a model at all.
+]]
+function Upgrades.GetModelName(track: string, level: number): string?
+	local def = Upgrades.Get(track)
+	if not def then
+		return nil
+	end
+	local clamped = math.clamp(math.floor(level), 1, def.maxLevel)
+	for i = clamped, 1, -1 do
+		local record = def.levels[i]
+		if record and record.modelName then
+			return record.modelName
+		end
+	end
+	return nil
+end
+
 function Upgrades.GetQueueCapacity(level: number): number
 	local record = Upgrades.GetLevel("register", level)
 	return (record and record.queueCapacity) or 0
