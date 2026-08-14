@@ -13,6 +13,35 @@ playtesting to answer whether the swing feels good.
 
 ---
 
+## Resume here — state as of 2026-08-14
+
+**The full loop works in-game, end to end.** Verified against `ECONOMY.md` §4: join →
+kill 5 cubs → pack fills to 20/20 → sell on the pad → +50 cash → buy pack lv2 →
+capacity 32. `main` is `24c49a6`, clean and in sync with both remotes.
+
+Shipped and verified: `Data` `State` `Currency` `Inventory` `Creature` `Combat` `Sell`
+`Zone` `Upgrade` `Analytics` on the server; `Net` `State` `Harvest` on the client.
+
+**Next up, in order:**
+
+1. **B3 `HudController`** — the loop is playable but invisible; nothing shows cash or
+   pack weight. Wire `State.Observe("cash", …)` and `("packWeight"/"packCapacity", …)`
+   into Dionis's `Hud`, which takes `Cash` as a prop. Soft-blocked on C1 landing.
+2. **B4 `EffectsController`** — hit flash, floating numbers, hitstop. No dependency on
+   Dionis; can start any time.
+3. **E1 test harness** — the only M1 job with no owner in flight.
+4. **V1** then **V2** (yours: ten minutes, five written answers).
+
+**Two standing hazards** — both have already cost a session each:
+
+- **Never `git add -A` in this repo.** Dionis's UI work sits uncommitted on the same
+  NAS working copy. Commit explicit file lists only.
+- **No job has passed lint/format.** `rokit install` cannot reach GitHub from this
+  machine, so `stylua`, `selene` and `wally` are unavailable. The DoD in `WORKFLOW.md`
+  §5 is unmet across the board — this is a real debt, not a formality.
+
+---
+
 ## G · Growth — companions, monetization depth, retention
 
 The commercial layer. `G1` runs **now**, before M1 finishes. Design in `docs/MONETIZATION.md`.
@@ -65,18 +94,18 @@ Target: a player can join, kill cubs, fill a pack, sell, buy 3 upgrades, rejoin 
 | ID | Job | Owner | Depends | Status |
 |---|---|---|---|---|
 | A1 | `DataService` — ProfileStore, schema, migration, leaderstats | Server | F4 | **DONE** |
-| A2 | `StateService` — profile→client diff replication at 10Hz | Server | A1 | TODO |
+| A2 | `StateService` — profile→client diff replication at 10Hz | Server | A1 | **DONE** |
 | A3 | `CurrencyService` + `InventoryService` — cash, pack weight, capacity | Server | A1 | **DONE** |
 | A4 | `CreatureService` — spawn from zone config, HP table, respawn, drops | Server | F4 | **DONE** |
-| A5 | `CombatService` — swing validation, damage, cooldown, range, kill | Server | A3, A4 | TODO |
-| A6 | `SellService` — sell zone, payout, pack clear, multiplier hook | Server | A3 | TODO |
-| A7 | `UpgradeService` — cost curve, purchase validation, effect application | Server | A3 | TODO |
-| B1 | Client bootstrap, `Net`, `State` mirror | Client | F4 | TODO |
-| B2 | `HarvestController` — prompt binding, hold-to-swing, target tracking | Client | B1, A5 | TODO |
+| A5 | `CombatService` — swing validation, damage, cooldown, range, kill | Server | A3, A4 | **DONE** |
+| A6 | `SellService` — sell zone, payout, pack clear, multiplier hook | Server | A3 | **DONE** |
+| A7 | `UpgradeService` — cost curve, purchase validation, effect application | Server | A3 | **DONE** |
+| B1 | Client bootstrap, `Net`, `State` mirror | Client | F4 | **DONE** |
+| B2 | `HarvestController` — prompt binding, hold-to-swing, target tracking | Client | B1, A5 | **DONE** |
 | B3 | `HudController` — cash, pack bar, zone label, sell arrow | Client | B1, C1 | TODO |
 | B4 | `EffectsController` — hit flash, particles, floating numbers, hitstop | Client | B1, C1 | TODO |
-| C1 | UI kit — `Ui` builder, palette tokens, base components | Client | F1 | TODO |
-| C2 | Build Zone 1 in Studio — outpost, sell pad, spawn markers | World | F2 | TODO |
+| C1 | UI kit — React Lua per D-011 (`App`, `Theme`, primitives) | Dionis | F1 | IN-PROGRESS |
+| C2 | Build Zone 1 in Studio — outpost, sell pad, spawn markers | Dionis | F2 | TODO |
 | E1 | Test harness + economy/validation unit tests | QA | F2, F3 | TODO |
 | V1 | Automated slice verification — full loop driven in real Studio | QA | all M1, P1 | TODO |
 | V2 | **You:** 10-minute feel check, five written answers | You | V1 | TODO |
@@ -85,7 +114,7 @@ Target: a player can join, kill cubs, fill a pack, sell, buy 3 upgrades, rejoin 
 
 | ID | Job | Owner | Depends | Status |
 |---|---|---|---|---|
-| A8 | `ZoneService` — unlock validation, barriers, membership, teleport | Server | A7, C3 | TODO |
+| A8 | `ZoneService` — unlock validation, barriers, membership, teleport | Server | A7, C3 | **DONE** |
 | A9 | Creature tiers 2–5 + golden variant + weighted spawning | Server | A4 | TODO |
 | A10 | `ToolService` — harpoon model per level, swing animation | Server | A7 | TODO |
 | A11 | Trader NPC — prompt, sell-all interaction, idle head-turn | Server | A6, C5 | TODO |
@@ -106,7 +135,7 @@ Target: a player can join, kill cubs, fill a pack, sell, buy 3 upgrades, rejoin 
 |---|---|---|---|---|
 | A12 | `AntiCheat` — rate limits, distance/teleport sanity, arg validation | QA + Server | all M2 | TODO |
 | A13 | `MonetizationService` — gamepass cache, receipts, multiplier assembly | Server | A6, P5 | TODO |
-| A14 | `AnalyticsService` — typed events, funnel, economy sources/sinks | Server | A1 | TODO |
+| A14 | `AnalyticsService` — typed events, funnel, economy sources/sinks | Server | A1 | **DONE** |
 | D2 | Rebirth system + rank display | Server + Client | A7, A8 | TODO |
 | D3 | Daily reward ladder + playtime chests | Server + Client | A1, B5 | TODO |
 | D4 | Global leaderboard (OrderedDataStore) + in-world boards | Server + World | A1, C2 | TODO |
