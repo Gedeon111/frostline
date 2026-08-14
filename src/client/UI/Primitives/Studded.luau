@@ -47,6 +47,8 @@ export type Props = {
 	-- Supply one and the baked stud PNG is replaced by a tiled emboss sheet, the same
 	-- construction the shop's top bar uses. See the STUD SHEETS note in Theme.
 	Sheet: Theme.StudSheet?,
+	-- Overrides Theme.SheetInset for surfaces whose border sits unusually far in.
+	SheetInset: number?,
 	Position: UDim2?,
 	AnchorPoint: Vector2?,
 	Size: UDim2?,
@@ -81,6 +83,27 @@ local function layer(
 	return React.createElement("ImageLabel", layerProps, inner)
 end
 
+--[[
+	The two angled light bands, as one full-bleed frame carrying a tilted gradient.
+
+	Not two rotated frames: ClipsDescendants has no effect on a rotated descendant, so
+	that version escaped the panel and streaked across the screen. See Theme.Glow.
+]]
+local function glow()
+	return React.createElement("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 0,
+		BorderSizePixel = 0,
+		ZIndex = 1,
+	}, {
+		Gradient = React.createElement("UIGradient", {
+			Rotation = Theme.Glow.Rotation,
+			Transparency = Theme.Glow.Transparency,
+		}),
+	})
+end
+
 local function Studded(props: Props)
 	local surface = props.Surface
 	local skin = props.Skin
@@ -90,19 +113,30 @@ local function Studded(props: Props)
 	}
 
 	if props.Sheet then
-		-- Tiled emboss. Drawn untinted and opaque: the sheet carries the Figma blend
-		-- stack and its black pixels are the shadow half, which a tint would erase.
+		--[[
+			Tiled emboss, held Theme.SheetInset in from the edge of the exported Stud
+			layer. That layer covers nearly the whole panel, so without the inset the
+			studs run under the black border and the lighter inline and spill past
+			them; the inline is as far out as they should ever reach.
+
+			Tinted to the skin's StudTint, which is the inline's own colour. ImageColor3
+			multiplies, so the white highlights take the tint while the black shadow
+			half is untouched — the emboss survives and stops reading as white specks.
+		]]
 		local sheet = props.Sheet
-		local tile, frame = Theme.studTile(sheet, surface.Stud.Size.X, surface.Stud.Size.Y)
+		local inset = props.SheetInset or Theme.SheetInset
+		local box = surface.Stud.Size - Vector2.new(inset, inset) * 2
+		local tile, frame = Theme.studTile(sheet, box.X, box.Y)
 		children.StudTexture = React.createElement("ImageLabel", {
 			Image = sheet.Image,
 			Position = UDim2.fromOffset(
-				surface.Stud.Offset.X + (surface.Stud.Size.X - frame.X) // 2,
-				surface.Stud.Offset.Y + (surface.Stud.Size.Y - frame.Y) // 2
+				surface.Stud.Offset.X + inset + (box.X - frame.X) // 2,
+				surface.Stud.Offset.Y + inset + (box.Y - frame.Y) // 2
 			),
 			Size = UDim2.fromOffset(frame.X, frame.Y),
 			ScaleType = Enum.ScaleType.Tile,
 			TileSize = tile,
+			ImageColor3 = skin.StudTint,
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
 			ZIndex = 2,
@@ -115,7 +149,62 @@ local function Studded(props: Props)
 	end
 
 	if skin.MaskIsArt then
-		children.GroupMask = layer(skin.Mask, surface.Mask, 3)
+		--[[
+			The gem artwork also carries a halftone sparkle field, baked into the same
+			PNG and reaching the full width of the panel — so it ran over the inline
+			rim and onto the black border. It cannot be moved or recoloured on its own,
+			because it is the same image as the gem.
+
+			So it is clipped instead: a container inset by SheetInset with
+			ClipsDescendants crops the sparkles at the same line the stud field stops
+			at, while the gem, which sits well inside, is untouched.
+		]]
+		local maskInset = props.SheetInset or Theme.SheetInset
+		local clipWidth = surface.Size.X - maskInset * 2
+		local clipHeight = surface.Size.Y - maskInset * 2
+		local sparkleSpan = math.max(clipWidth, clipHeight)
+		children.GroupMask = React.createElement("Frame", {
+			Position = UDim2.fromOffset(maskInset, maskInset),
+			Size = UDim2.new(1, -maskInset * 2, 1, -maskInset * 2),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ClipsDescendants = true,
+			ZIndex = 3,
+		}, {
+			--[[
+				Behind the gem, tinted to the inline so it reads as a lighter shade of
+				the panel. Only drawn for skins whose gem art has had the halftone
+				removed — otherwise it lands on top of the baked copy.
+
+				Sized to a square covering the panel's longer edge rather than
+				stretched to fill it. The sheet is a square diamond field but the
+				panels are not square — the hero is 3.25:1 — and stretching would pull
+				every dot into an ellipse. Square-and-crop keeps them round; the
+				container's ClipsDescendants takes care of the overflow.
+			]]
+			Glow = if skin.Sparkle then glow() else nil,
+			-- Anchored to the bottom-left rather than centred: the sheet's dots are
+			-- dense at that corner and thin out towards the top-right, which is the
+			-- gradient the source has across the panel.
+			Sparkle = if skin.Sparkle
+				then React.createElement("ImageLabel", {
+					Image = Theme.Sparkle,
+					Size = UDim2.fromOffset(sparkleSpan, sparkleSpan),
+					Position = UDim2.fromOffset(0, clipHeight - sparkleSpan),
+					ScaleType = Enum.ScaleType.Fit,
+					ImageColor3 = skin.StudTint,
+					BackgroundTransparency = 1,
+					BorderSizePixel = 0,
+					ZIndex = 2,
+				})
+				else nil,
+			-- Above the glow (1) and the halftone (2).
+			Art = layer(skin.Mask, {
+				Size = surface.Mask.Size,
+				Offset = surface.Mask.Offset - Vector2.new(maskInset, maskInset),
+				Fit = surface.Mask.Fit,
+			}, 3),
+		})
 	else
 		children.Gloss = layer(skin.Mask, surface.Mask, 3, {
 			-- Tinted, not white — see the GLOSS note in Theme.

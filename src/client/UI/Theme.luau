@@ -155,7 +155,10 @@ Theme.Surface = {
 	HeroPanel = {
 		Size = Vector2.new(815, 261),
 		Main = { Size = Vector2.new(820, 269), Offset = Vector2.new(-3, -3), Fit = true },
-		Mask = { Size = Vector2.new(812, 250), Offset = Vector2.new(0, 3), Fit = true },
+		-- Gem only. Sized so the clean export's outline lands exactly where the old
+		-- combined gem+halftone art had it: measured at (553,10) 254x232 inside the
+		-- former 812x250 mask box.
+		Mask = { Size = Vector2.new(303, 303), Offset = Vector2.new(519, -16), Fit = true },
 		Stud = { Size = Vector2.new(815, 250), Offset = Vector2.new(0, 3) },
 		Order = "StudFirst",
 	} :: Surface,
@@ -164,7 +167,8 @@ Theme.Surface = {
 	ProductCard = {
 		Size = Vector2.new(255, 323),
 		Main = { Size = Vector2.new(261, 333), Offset = Vector2.new(-3, -5), Fit = true },
-		Mask = { Size = Vector2.new(255, 312), Offset = Vector2.new(0, 0), Fit = true },
+		-- Gem only; see the HeroPanel note. Old placement measured at (42,60) 169x180.
+		Mask = { Size = Vector2.new(217, 217), Offset = Vector2.new(18, 41), Fit = true },
 		Stud = { Size = Vector2.new(255, 309), Offset = Vector2.new(0, 3) },
 		Order = "StudFirst",
 	} :: Surface,
@@ -202,6 +206,9 @@ export type Skin = {
 	Stud: string,
 	MaskIsArt: boolean?,
 	StudTint: Color3?,
+	-- Set once this skin's gem art no longer has the halftone baked in. See the
+	-- SPARKLE note below.
+	Sparkle: boolean?,
 }
 
 --[[
@@ -246,9 +253,14 @@ local GREEN = Color3.fromHex("#80F057")
 local RED = Color3.fromHex("#FF6363")
 local SKY = Color3.fromHex("#22E9FF")
 local BLUE = Color3.fromHex("#00D0FF")
-local GOLD = Color3.fromHex("#FFC400")
 local MAGENTA = Color3.fromHex("#DB35BD")
 local GREY = Color3.fromHex("#CFCFCF")
+
+-- Inline-rim colours, off the SVG's inner strokes. Surfaces drawn with a stud sheet
+-- tint their studs with these so the field reads as a lighter shade of the panel
+-- rather than white specks.
+local GOLD_RIM = Color3.fromHex("#FFEC59")
+local BLUE_RIM = Color3.fromHex("#59E6FF")
 
 Theme.Skin = {
 	Base = {
@@ -302,10 +314,12 @@ Theme.Skin = {
 	HeroPanel = {
 		Main = "rbxassetid://135516138510125",
 		-- Gem illustration, not a matte.
-		Mask = "rbxassetid://85749020577790",
+		Mask = "rbxassetid://111756141586572",
+		-- Gem only; the halftone that used to be baked alongside it is Theme.Sparkle.
 		MaskIsArt = true,
+		Sparkle = true,
 		Stud = "rbxassetid://111783570152159",
-		StudTint = GOLD,
+		StudTint = GOLD_RIM,
 	} :: Skin,
 	HeroButton = {
 		Main = "rbxassetid://139409156643524",
@@ -316,10 +330,12 @@ Theme.Skin = {
 	ProductCard = {
 		Main = "rbxassetid://133837716633039",
 		-- Gem illustration, not a matte.
-		Mask = "rbxassetid://90938734720299",
+		Mask = "rbxassetid://111756141586572",
+		-- Gem only; see HeroPanel.
 		MaskIsArt = true,
+		Sparkle = true,
 		Stud = "rbxassetid://103344333733995",
-		StudTint = BLUE,
+		StudTint = BLUE_RIM,
 	} :: Skin,
 	ProductButton = {
 		Main = "rbxassetid://140596104070476",
@@ -376,6 +392,64 @@ Theme.Stud = {
 -- Target on-screen size of one stud, in canvas px. Tile sizes are derived from this
 -- and the sheet's stud count, so Coarse and Fine render studs at the same scale.
 Theme.StudSize = 22
+
+--[[
+	How far a stud field is held back from the edge of a baked surface.
+
+	The exported Stud layers cover almost the whole panel, so studs ran under the
+	black border and the lighter inline rim and spilled past them. The inline is the
+	furthest they should reach, and on the shop's own cells that sits at OUTLINE + RIM
+	= 9 in from the edge. The baked surfaces use the same figure so the two match.
+]]
+Theme.SheetInset = 9
+
+--[[
+	SPARKLE — the diamond halftone field that sits behind the gem on the bundle and
+	the product cards.
+
+	White on transparent, so ImageColor3 tints it directly; skins point at their
+	inline-rim colour so the dots read as a lighter shade of the panel rather than
+	white specks. Drawn inside the same clipped, SheetInset container as the gem, so
+	it can never reach the inline or the black border.
+
+	Only used by a skin that sets `Sparkle`. The FigBlox gem exports have this field
+	baked into the same PNG as the gem, and those two cannot be separated in code —
+	so a skin must not set `Sparkle` until its gem art has been re-exported without
+	it, or the dots render twice.
+]]
+Theme.Sparkle = "rbxassetid://137111860287825"
+
+--[[
+	GLOW — the angled light band that was baked into the same export as the gem and
+	the halftone, recreated as a rotated rectangle.
+
+	In Figma it is a white fill at 45% in Soft Light. Roblox has no blend modes, and
+	Soft Light with white is far gentler than normal alpha: it lifts a mid-tone by
+	roughly (1-b)*(sqrt(b)-b) * fill, which at b=0.5 is about 4.7% and on a bright
+	gold panel barely 1%. Matching that with a plain white overlay needs around 10%
+	alpha, hence the high transparency — the effect is meant to be barely there.
+
+	Two bands, one at the bottom-left corner and one at the top-right, at the source's
+	-49.77 degrees rounded to -50.
+
+	Both come from a single UIGradient rather than two rotated frames, because
+	ClipsDescendants does not clip a *rotated* descendant — rotating the frames let
+	them escape the panel and streak across the whole screen. A gradient's rotation
+	tilts the ramp without rotating the instance, so the clip still holds. The ramp is
+	opaque at each end and clear through the middle, which puts one band in each
+	opposite corner.
+]]
+Theme.Glow = {
+	Rotation = -50,
+	Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.88),
+		NumberSequenceKeypoint.new(0.2, 0.88),
+		NumberSequenceKeypoint.new(0.34, 1),
+		NumberSequenceKeypoint.new(0.66, 1),
+		NumberSequenceKeypoint.new(0.8, 0.88),
+		NumberSequenceKeypoint.new(1, 0.88),
+	}),
+}
 
 --[[
 	Size one stud tile for a box, in canvas units.
