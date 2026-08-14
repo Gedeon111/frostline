@@ -1,17 +1,19 @@
 --!strict
 --[[
-	ZONES — source: docs/ECONOMY.md §3, lighting from docs/ART_BIBLE.md §3.
+	ZONES — DEPRECATED BY D-017. Scheduled for deletion.
 
-	NO GEOMETRY LIVES HERE (D-009). Zones are hand-built in Studio under
-	Workspace.World.<id>. What this file holds is gameplay data plus the *names*
-	of marker instances the code looks up.
+	The five-zone sell-pad progression is gone. There is one shared hunting
+	ground (Config.Plots) and no zone gating, no unlock costs, no sell pads and
+	no per-zone lighting transitions in the corrected slice.
 
-	Those names are the contract between whoever builds a zone and the code that
-	reads it: CreatureService finds `spawnRegion` by name, SellService finds
-	`sellPads`, ZoneService finds `barrier`. Rename one in Studio and the service
-	stops working with no error — so renaming a marker is a contract change and
-	needs an RFC, not a tidy-up.
+	This file survives F5 only because AnalyticsService, CreatureService and
+	ZoneService still require it, and those belong to A19 and their own packets.
+	Deleting it here would break three files F5 does not own.
+
+	Nothing new may read this module. When the last dependent is adapted, delete
+	it — do not repurpose it for the hunting ground.
 ]]
+
 
 local Types = require(script.Parent.Parent.Types)
 

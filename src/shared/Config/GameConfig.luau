@@ -47,28 +47,28 @@ return {
 	AutosaveInterval = 60,
 	DataStoreName = "Frostline_Player",
 	DataStoreScope = "live",    -- P4/tests override to "test" — never share keys
-	ProfileVersion = 1,
+	ProfileVersion = 2,         -- D-017. v1 profiles migrate in DataService.
 
 	-- ── Replication ──
 	StateReplicationHz = 10,    -- one batched StateChanged per tick, never per change
-	ZoneCheckHz = 5,            -- region polling for zone membership + sell pads
 
 	-- ── Rate limits (per player, per remote) ──
-	-- Applied centrally in Net (F4). No service writes its own rate check.
+	-- Applied centrally in Net. No service writes its own rate check.
+	--
+	-- V2 has four inbound remotes. The V1 entries for RequestSell,
+	-- RequestUnlockZone, RequestTeleport, RequestHatch, RequestEquip,
+	-- RequestFuse, RequestClaim and RequestOffer are deliberately absent —
+	-- their remotes no longer exist, and a limit for a remote nobody creates
+	-- reads like the feature is merely disabled rather than gone.
 	RateLimits = {
 		RequestSwing = { budget = 10, perSeconds = 1 },
-		RequestSell = { budget = 4, perSeconds = 1 },
 		RequestPurchase = { budget = 6, perSeconds = 1 },
-		RequestUnlockZone = { budget = 4, perSeconds = 1 },
-		RequestTeleport = { budget = 3, perSeconds = 1 },
-		RequestHatch = { budget = 6, perSeconds = 1 },
-		RequestEquip = { budget = 10, perSeconds = 1 },
-		RequestFuse = { budget = 4, perSeconds = 1 },
-		RequestClaim = { budget = 6, perSeconds = 1 },
-		RequestOffer = { budget = 3, perSeconds = 1 },
 		-- Toggling is a deliberate human action; 4/s is generous for a button and
 		-- still stops a loop from writing the profile every frame.
 		RequestSetting = { budget = 4, perSeconds = 1 },
+		-- Unlock, upgrade, enable and disable all arrive here, and a player
+		-- flipping a worker on and off is a legitimate burst.
+		RequestWorkerAction = { budget = 6, perSeconds = 1 },
 		_default = { budget = 5, perSeconds = 1 },
 	},
 
@@ -77,9 +77,17 @@ return {
 	CreatureWanderRadius = 30,
 	CreatureWanderInterval = { min = 4, max = 8 },
 
-	-- ── Onboarding (ECONOMY §7 rule 5 — a release blocker, not a nice-to-have) ──
-	TargetSecondsToFirstSell = 90,
-	SellArrowShowsAtPackFraction = 0.5,
+	--[[
+		── Onboarding (ECONOMY §4 release targets) ──
+
+		The corrected slice is measured as STAGES, not one instant sale. V1
+		records median and worst case for each with one player and with eight.
+		These are targets for that measurement, never values a service reads.
+	]]
+	TargetSecondsToFirstKill = 30,
+	TargetSecondsToFirstStock = 60,
+	TargetSecondsToFirstCheckout = 90,
+	TargetSecondsToFirstCollection = 100,
 
 	-- ── Analytics ──
 	-- Kill switch. Analytics must never be the reason the game breaks, so it

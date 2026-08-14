@@ -22,16 +22,31 @@ local ServerStorage = game:GetService("ServerStorage")
 local Runner = require(script.Parent.Runner)
 
 return function(): (number, number, string)
+	--[[
+		Recursive, so `tests/contracts/**` is picked up alongside the top-level
+		specs. F5 groups its contract tests in a subfolder because they answer a
+		different question from the rest: not "does this code work" but "is the
+		shape other packets code against actually the shape ARCHITECTURE
+		describes".
+	]]
 	local specs: { ModuleScript } = {}
-	for _, child in ipairs(script.Parent:GetChildren()) do
-		if child:IsA("ModuleScript") and child.Name:match("%.spec$") then
-			table.insert(specs, child)
+	local function collect(container: Instance)
+		for _, child in ipairs(container:GetChildren()) do
+			if child:IsA("ModuleScript") then
+				if child.Name:match("%.spec$") then
+					table.insert(specs, child)
+				end
+			else
+				collect(child)
+			end
 		end
 	end
+	collect(script.Parent)
 
-	-- Stable order so two runs are comparable line for line.
+	-- Stable order so two runs are comparable line for line. Sorted by full
+	-- path, so contracts/ specs group together rather than interleaving.
 	table.sort(specs, function(a, b)
-		return a.Name < b.Name
+		return a:GetFullName() < b:GetFullName()
 	end)
 
 	if #specs == 0 then
